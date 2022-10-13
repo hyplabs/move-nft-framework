@@ -20,6 +20,7 @@ module AuctionHouse::Auction {
     const ENOBODY_HAS_BID: u64 = 8;
     const ESELLER_STILL_OWNS_TOKEN: u64 = 9;
     const EBUYER_DOESNT_OWN_TOKEN: u64 = 10;
+    const ERESOURCE_NOT_REMOVED: u64 = 11;
 
     struct AuctionItem<phantom CoinType> has key {
         min_selling_price: u64,
@@ -106,6 +107,18 @@ module AuctionHouse::Auction {
         // The bid amount is transfered to the seller
         let bid_amount = coin::extract_all<CoinType>(&mut auction_item.current_bid);
         coin::deposit<CoinType>(seller_addr, bid_amount);
+
+        let auc = move_from<AuctionItem<CoinType>>(seller_addr);
+
+        let AuctionItem<CoinType> {
+            min_selling_price: _,
+            end_time: _,
+            start_time: _,
+            current_bid,
+            current_bidder: _,
+            token: _
+            } = auc;
+        coin::destroy_zero<CoinType>(current_bid);
         
     }
 
@@ -162,7 +175,7 @@ module AuctionHouse::Auction {
         let token = token::create_token_id_raw(seller_addr, string::utf8(collection_name), string::utf8(token_name), property_version); 
         assert!(token::balance_of(seller_addr, token) == 0, ESELLER_STILL_OWNS_TOKEN);  
         assert!(token::balance_of(buyer_addr, token) == 1, EBUYER_DOESNT_OWN_TOKEN);  
-        
+        assert!(!exists<AuctionItem<FakeCoin>>(seller_addr), ERESOURCE_NOT_REMOVED) 
 
     }
 
