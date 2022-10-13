@@ -16,6 +16,10 @@ module AuctionHouse::Auction {
     const ESELLER_DOESNT_OWN_TOKEN: u64 = 4;
     const EINSUFFICIENT_BALANCE: u64 = 5;
     const EINVALID_BALANCE: u64 = 6;
+    const EAUCTION_IS_STILL_GOING_ON: u64 = 7;
+    const ENOBODY_HAS_BID: u64 = 8;
+    const ESELLER_STILL_OWNS_TOKEN: u64 = 9;
+    const EBUYER_DOESNT_OWN_TOKEN: u64 = 10;
 
     struct AuctionItem<phantom CoinType> has key {
         min_selling_price: u64,
@@ -33,7 +37,7 @@ module AuctionHouse::Auction {
 
         assert!(!exists<AuctionItem<CoinType>>(sender_addr), EITEM_ALREADY_EXISTS);
         // Check if the seller actually owns the NFT
-        // assert!(token::balance_of(sender_addr, token_id) > 0, ESELLER_DOESNT_OWN_TOKEN);
+        assert!(token::balance_of(sender_addr, token_id) > 0, ESELLER_DOESNT_OWN_TOKEN);
 
         let start_time = timestamp::now_microseconds();
         let end_time = duration + start_time;
@@ -72,12 +76,37 @@ module AuctionHouse::Auction {
         assert!(coin::balance<CoinType>(bidder_addr) > bid_amount, EINSUFFICIENT_BALANCE);
 
         // Check if the seller still owns the token
-        // assert!(token::balance_of(seller_addr, auction_item.token) > 0, ESELLER_DOESNT_OWN_TOKEN); 
+        assert!(token::balance_of(seller, auction_item.token) > 0, ESELLER_DOESNT_OWN_TOKEN); 
 
         let bid = coin::withdraw<CoinType>(bidder, bid_amount);
         coin::merge<CoinType>(&mut auction_item.current_bid, bid); 
         auction_item.current_bidder = bidder_addr;
 
+        // The user should opt in direct transfer to claim token
+        token::opt_in_direct_transfer(bidder, true);
+
+    }
+
+    public entry fun close_and_transfer<CoinType>(seller: &signer, _creator: address, _collection_name: vector<u8>, _token_name: vector<u8>, _property_version: u64) acquires AuctionItem {
+        let seller_addr = signer::address_of(seller);
+
+        assert!(exists<AuctionItem<CoinType>>(seller_addr), EAUCTION_ITEM_NOT_CREATED);
+
+        let auction_item = borrow_global_mut<AuctionItem<CoinType>>(seller_addr);
+
+        // let current_time = timestamp::now_microseconds();
+        // assert!(current_time > auction_item.end_time, EAUCTION_IS_STILL_GOING_ON);
+        assert!(seller_addr != auction_item.current_bidder, ENOBODY_HAS_BID);
+        assert!(token::balance_of(seller_addr, auction_item.token) > 0, ESELLER_DOESNT_OWN_TOKEN);  
+
+        // // buyer should opt in for transfer the token
+        // // The token is transfered to the buyer
+        token::transfer(seller, auction_item.token ,auction_item.current_bidder, 1);
+
+        // The bid amount is transfered to the seller
+        let bid_amount = coin::extract_all<CoinType>(&mut auction_item.current_bid);
+        coin::deposit<CoinType>(seller_addr, bid_amount);
+        
     }
 
     #[test_only]
@@ -102,21 +131,38 @@ module AuctionHouse::Auction {
         let token_name = b"xyz";
         let min_selling_price = 100;
         let duration = 60 * 60 * 24 * 1000000; // duration for 1 day in microseconds
-        let property_version = 1;
+        let property_version = 0;
+        let description = b"This is a token";
+        let uri = b"https://example.com";
+        let maximum = 10;
 
         let initial_mint_amount = 10000;
 
         let seller_addr = signer::address_of(&seller);
         let buyer_addr = signer::address_of(&buyer);
 
+        initialize_coin_and_mint(&module_owner, &buyer, initial_mint_amount);
+        aptos_account::create_account(seller_addr);
+        managed_coin::register<FakeCoin>(&seller);
+        
+        // mint a token
+        token::create_collection_script(&seller, string::utf8(collection_name), string::utf8(description), string::utf8(uri), maximum, vector<bool>[false, false, false]);
+        token::create_token_script(&seller, string::utf8(collection_name), string::utf8(token_name), string::utf8(description), 1, 1, string::utf8(uri), seller_addr, 100, 10, vector<bool>[false, false, false, false, false], vector<string::String>[], vector<vector<u8>>[],vector<string::String>[]);
+
         initialize_auction<FakeCoin>(&seller, seller_addr, collection_name, token_name, min_selling_price, duration, property_version);
         assert!(exists<AuctionItem<FakeCoin>>(seller_addr), EAUCTION_ITEM_NOT_CREATED); 
 
-        initialize_coin_and_mint(&module_owner, &buyer, initial_mint_amount);
         let first_bid_amount = 900;
 
         bid<FakeCoin>(&buyer, seller_addr, seller_addr, collection_name, token_name, property_version, first_bid_amount);
         assert!(coin::balance<FakeCoin>(buyer_addr) == (initial_mint_amount - first_bid_amount), EINVALID_BALANCE);
+
+        close_and_transfer<FakeCoin>(&seller, seller_addr, collection_name, token_name, property_version); 
+        assert!(coin::balance<FakeCoin>(seller_addr) == (first_bid_amount), EINVALID_BALANCE);
+        let token = token::create_token_id_raw(seller_addr, string::utf8(collection_name), string::utf8(token_name), property_version); 
+        assert!(token::balance_of(seller_addr, token) == 0, ESELLER_STILL_OWNS_TOKEN);  
+        assert!(token::balance_of(buyer_addr, token) == 1, EBUYER_DOESNT_OWN_TOKEN);  
+        
 
     }
 
