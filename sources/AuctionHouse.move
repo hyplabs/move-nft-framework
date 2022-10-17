@@ -95,8 +95,8 @@ module AuctionHouse::Auction {
 
         let auction_item = borrow_global_mut<AuctionItem<CoinType>>(seller_addr);
 
-        // let current_time = timestamp::now_microseconds();
-        // assert!(current_time > auction_item.end_time, EAUCTION_IS_STILL_GOING_ON);
+        let current_time = timestamp::now_microseconds();
+        assert!(current_time > auction_item.end_time, EAUCTION_IS_STILL_GOING_ON);
         assert!(seller_addr != auction_item.current_bidder, ENOBODY_HAS_BID);
         assert!(token::balance_of(seller_addr, auction_item.token) > 0, ESELLER_DOESNT_OWN_TOKEN);  
 
@@ -169,6 +169,8 @@ module AuctionHouse::Auction {
 
         bid<FakeCoin>(&buyer, seller_addr, seller_addr, collection_name, token_name, property_version, first_bid_amount);
         assert!(coin::balance<FakeCoin>(buyer_addr) == (initial_mint_amount - first_bid_amount), EINVALID_BALANCE);
+
+        timestamp::fast_forward_seconds(duration/1000);
 
         close_and_transfer<FakeCoin>(&seller, seller_addr, collection_name, token_name, property_version); 
         assert!(coin::balance<FakeCoin>(seller_addr) == (first_bid_amount), EINVALID_BALANCE);

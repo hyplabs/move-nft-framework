@@ -3,7 +3,7 @@ name = 'marketplace'
 version = '1.0.0'
 
 [addresses]
-AuctionHouse = "539bc5c5b067d45431d6ff5327a0da8fdf2f4d826694e6e250d10d464d6cce10"
+AuctionHouse = "7f3d5a9cb25dcd7b3f9a73d266b96b62c13e0326abc0755c7f619ed2b908e98f"
 
 [dependencies]
 AptosFramework = { git = "https://github.com/aptos-labs/aptos-core.git", subdir = "aptos-move/framework/aptos-framework/", rev="devnet"}
