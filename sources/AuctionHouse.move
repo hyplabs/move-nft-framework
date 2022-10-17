@@ -144,9 +144,17 @@ module AuctionHouse::Auction {
         managed_coin::mint<FakeCoin>(admin, user_addr, mint_amount); 
     }
 
-    #[test(module_owner = @AuctionHouse, seller = @0x4, buyer= @0x5,  aptos_framework = @0x1)]
+    #[test_only]
+    public fun mint(admin: &signer, user: &signer, mint_amount: u64) {
+        let user_addr = signer::address_of(user);
+        aptos_account::create_account(user_addr);
+        managed_coin::register<FakeCoin>(user);
+        managed_coin::mint<FakeCoin>(admin, user_addr, mint_amount); 
+    }
+
+    #[test(module_owner = @AuctionHouse, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
     // #[expected_failure(abort_code = 3)]
-    public fun can_initialize_auction(seller: signer, aptos_framework: signer, buyer: signer, module_owner: signer) acquires AuctionItem {
+    public fun can_initialize_auction(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
 
         timestamp::set_time_has_started_for_testing(&aptos_framework);
 
@@ -163,10 +171,13 @@ module AuctionHouse::Auction {
 
         let seller_addr = signer::address_of(&seller);
         let buyer_addr = signer::address_of(&buyer);
+        let first_bidder_addr = signer::address_of(&first_bidder);
 
         initialize_coin_and_mint(&module_owner, &buyer, initial_mint_amount);
         aptos_account::create_account(seller_addr);
         managed_coin::register<FakeCoin>(&seller);
+
+        mint(&module_owner, &first_bidder, initial_mint_amount);
         
         // mint a token
         token::create_collection_script(&seller, string::utf8(collection_name), string::utf8(description), string::utf8(uri), maximum, vector<bool>[false, false, false]);
@@ -176,14 +187,21 @@ module AuctionHouse::Auction {
         assert!(exists<AuctionItem<FakeCoin>>(seller_addr), EAUCTION_ITEM_NOT_CREATED); 
 
         let first_bid_amount = 900;
+        let second_bid_amount = 1000;
 
-        bid<FakeCoin>(&buyer, seller_addr, seller_addr, collection_name, token_name, property_version, first_bid_amount);
-        assert!(coin::balance<FakeCoin>(buyer_addr) == (initial_mint_amount - first_bid_amount), EINVALID_BALANCE);
+        bid<FakeCoin>(&first_bidder, seller_addr, seller_addr, collection_name, token_name, property_version, first_bid_amount);
+        assert!(coin::balance<FakeCoin>(first_bidder_addr) == (initial_mint_amount - first_bid_amount), EINVALID_BALANCE);
+
+        bid<FakeCoin>(&buyer, seller_addr, seller_addr, collection_name, token_name, property_version, second_bid_amount);
+        assert!(coin::balance<FakeCoin>(buyer_addr) == (initial_mint_amount - second_bid_amount), EINVALID_BALANCE);
+        // The previous bidder getting their bid back
+        assert!(coin::balance<FakeCoin>(first_bidder_addr) == (initial_mint_amount ), EINVALID_BALANCE);
+
 
         timestamp::fast_forward_seconds(duration/1000);
 
         close_and_transfer<FakeCoin>(&buyer, seller_addr, seller_addr, collection_name, token_name, property_version); 
-        assert!(coin::balance<FakeCoin>(seller_addr) == (first_bid_amount), EINVALID_BALANCE);
+        assert!(coin::balance<FakeCoin>(seller_addr) == (second_bid_amount), EINVALID_BALANCE);
         let token = token::create_token_id_raw(seller_addr, string::utf8(collection_name), string::utf8(token_name), property_version); 
         assert!(token::balance_of(seller_addr, token) == 0, ESELLER_STILL_OWNS_TOKEN);  
         assert!(token::balance_of(buyer_addr, token) == 1, EBUYER_DOESNT_OWN_TOKEN);  
