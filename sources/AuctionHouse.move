@@ -28,7 +28,8 @@ module AuctionHouse::Auction {
         start_time: u64,
         current_bid: coin::Coin<CoinType>,
         current_bidder: address,
-        token: token::TokenId 
+        token: token::TokenId,
+        withdrawCapability: token::WithdrawCapability
     }
 
     public entry fun initialize_auction<CoinType>(sender: &signer, creator: address, collection_name: vector<u8>, token_name: vector<u8>, min_selling_price: u64, duration: u64, property_version: u64) {
@@ -46,6 +47,8 @@ module AuctionHouse::Auction {
         // Creating a Coin<CoinType> with zero value which would be increased when someone bids
         let zero_coin = coin::zero<CoinType>();
 
+        let withdrawCapability = token::create_withdraw_capability(sender, token_id, 1, 100000000);
+
         move_to<AuctionItem<CoinType>>(sender, 
             AuctionItem{
                 min_selling_price, 
@@ -53,7 +56,8 @@ module AuctionHouse::Auction {
                 start_time, 
                 current_bid: zero_coin, 
                 current_bidder: sender_addr, 
-                token: token_id
+                token: token_id,
+                withdrawCapability
                 }
         );
     }
@@ -79,36 +83,36 @@ module AuctionHouse::Auction {
         // Check if the seller still owns the token
         assert!(token::balance_of(seller, auction_item.token) > 0, ESELLER_DOESNT_OWN_TOKEN); 
 
+        // give back the exisiting bid to previous bidder
+        let existing_coins = coin::extract_all<CoinType>(&mut auction_item.current_bid);
+        coin::deposit<CoinType>(auction_item.current_bidder, existing_coins);
+
         let bid = coin::withdraw<CoinType>(bidder, bid_amount);
         coin::merge<CoinType>(&mut auction_item.current_bid, bid); 
         auction_item.current_bidder = bidder_addr;
 
         // The user should opt in direct transfer to claim token
+        // TODO: opt in only for particular token id
         token::opt_in_direct_transfer(bidder, true);
+
 
     }
 
-    public entry fun close_and_transfer<CoinType>(seller: &signer, _creator: address, _collection_name: vector<u8>, _token_name: vector<u8>, _property_version: u64) acquires AuctionItem {
-        let seller_addr = signer::address_of(seller);
+    public entry fun close_and_transfer<CoinType>(seller_or_buyer: &signer, seller: address, _creator: address, _collection_name: vector<u8>, _token_name: vector<u8>, _property_version: u64) acquires AuctionItem {
+        assert!(exists<AuctionItem<CoinType>>(seller), EAUCTION_ITEM_NOT_CREATED);
 
-        assert!(exists<AuctionItem<CoinType>>(seller_addr), EAUCTION_ITEM_NOT_CREATED);
-
-        let auction_item = borrow_global_mut<AuctionItem<CoinType>>(seller_addr);
+        let auction_item = borrow_global_mut<AuctionItem<CoinType>>(seller);
 
         let current_time = timestamp::now_microseconds();
         assert!(current_time > auction_item.end_time, EAUCTION_IS_STILL_GOING_ON);
-        assert!(seller_addr != auction_item.current_bidder, ENOBODY_HAS_BID);
-        assert!(token::balance_of(seller_addr, auction_item.token) > 0, ESELLER_DOESNT_OWN_TOKEN);  
-
-        // // buyer should opt in for transfer the token
-        // // The token is transfered to the buyer
-        token::transfer(seller, auction_item.token ,auction_item.current_bidder, 1);
+        assert!(seller != auction_item.current_bidder, ENOBODY_HAS_BID);
+        assert!(token::balance_of(seller, auction_item.token) > 0, ESELLER_DOESNT_OWN_TOKEN);  
 
         // The bid amount is transfered to the seller
         let bid_amount = coin::extract_all<CoinType>(&mut auction_item.current_bid);
-        coin::deposit<CoinType>(seller_addr, bid_amount);
+        coin::deposit<CoinType>(seller, bid_amount);
 
-        let auc = move_from<AuctionItem<CoinType>>(seller_addr);
+        let auc = move_from<AuctionItem<CoinType>>(seller);
 
         let AuctionItem<CoinType> {
             min_selling_price: _,
@@ -116,9 +120,15 @@ module AuctionHouse::Auction {
             start_time: _,
             current_bid,
             current_bidder: _,
-            token: _
+            token: _,
+            withdrawCapability: withdrawCapability,
             } = auc;
         coin::destroy_zero<CoinType>(current_bid);
+
+        // Since withdrawCapability doesnt have copy ability, the item has to be destructured and then be used
+        // So now the token is been transfered to the buyer without the seller needing the sign
+        let token = token::withdraw_with_capability(withdrawCapability);
+        token::direct_deposit_with_opt_in(signer::address_of(seller_or_buyer), token);
         
     }
 
@@ -134,7 +144,7 @@ module AuctionHouse::Auction {
         managed_coin::mint<FakeCoin>(admin, user_addr, mint_amount); 
     }
 
-    #[test(module_owner = @AuctionHouse, seller = @0x4, buyer= @0x5, aptos_framework = @0x1)]
+    #[test(module_owner = @AuctionHouse, seller = @0x4, buyer= @0x5,  aptos_framework = @0x1)]
     // #[expected_failure(abort_code = 3)]
     public fun can_initialize_auction(seller: signer, aptos_framework: signer, buyer: signer, module_owner: signer) acquires AuctionItem {
 
@@ -172,7 +182,7 @@ module AuctionHouse::Auction {
 
         timestamp::fast_forward_seconds(duration/1000);
 
-        close_and_transfer<FakeCoin>(&seller, seller_addr, collection_name, token_name, property_version); 
+        close_and_transfer<FakeCoin>(&buyer, seller_addr, seller_addr, collection_name, token_name, property_version); 
         assert!(coin::balance<FakeCoin>(seller_addr) == (first_bid_amount), EINVALID_BALANCE);
         let token = token::create_token_id_raw(seller_addr, string::utf8(collection_name), string::utf8(token_name), property_version); 
         assert!(token::balance_of(seller_addr, token) == 0, ESELLER_STILL_OWNS_TOKEN);  
