@@ -21,6 +21,7 @@ module AuctionHouse::Auction {
     const ESELLER_STILL_OWNS_TOKEN: u64 = 9;
     const EBUYER_DOESNT_OWN_TOKEN: u64 = 10;
     const ERESOURCE_NOT_REMOVED: u64 = 11;
+    const EINVALID_SIGNER: u64 = 12;
 
     struct AuctionItem<phantom CoinType> has key {
         min_selling_price: u64,
@@ -99,10 +100,14 @@ module AuctionHouse::Auction {
     }
 
     public entry fun close_and_transfer<CoinType>(seller_or_buyer: &signer, seller: address, _creator: address, _collection_name: vector<u8>, _token_name: vector<u8>, _property_version: u64) acquires AuctionItem {
-        assert!(exists<AuctionItem<CoinType>>(seller), EAUCTION_ITEM_NOT_CREATED);
 
+        let signer_addr = signer::address_of(seller_or_buyer);
+        assert!(exists<AuctionItem<CoinType>>(seller), EAUCTION_ITEM_NOT_CREATED);
         let auction_item = borrow_global_mut<AuctionItem<CoinType>>(seller);
 
+        if (signer_addr != seller && signer_addr != auction_item.current_bidder) {
+            abort EINVALID_SIGNER
+        };
         let current_time = timestamp::now_microseconds();
         assert!(current_time > auction_item.end_time, EAUCTION_IS_STILL_GOING_ON);
         assert!(seller != auction_item.current_bidder, ENOBODY_HAS_BID);
@@ -119,7 +124,7 @@ module AuctionHouse::Auction {
             end_time: _,
             start_time: _,
             current_bid,
-            current_bidder: _,
+            current_bidder: buyer,
             token: _,
             withdrawCapability: withdrawCapability,
             } = auc;
@@ -128,7 +133,7 @@ module AuctionHouse::Auction {
         // Since withdrawCapability doesnt have copy ability, the item has to be destructured and then be used
         // So now the token is been transfered to the buyer without the seller needing the sign
         let token = token::withdraw_with_capability(withdrawCapability);
-        token::direct_deposit_with_opt_in(signer::address_of(seller_or_buyer), token);
+        token::direct_deposit_with_opt_in(buyer, token);
         
     }
 
