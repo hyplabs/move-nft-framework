@@ -1,4 +1,4 @@
-module AuctionHouse::Auction {
+module Marketplace::Auction {
 
     use std::signer;
     use std::string;
@@ -157,7 +157,7 @@ module AuctionHouse::Auction {
         managed_coin::mint<FakeCoin>(admin, user_addr, mint_amount); 
     }
 
-    #[test(module_owner = @AuctionHouse, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
+    #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
     // #[expected_failure(abort_code = 3)]
     public fun can_initialize_auction(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
 
