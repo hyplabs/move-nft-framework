@@ -21,9 +21,10 @@ module Marketplace::FixedPriceSale {
     const EBUYER_DOESNT_OWN_TOKEN: u64 = 9;
 
     /*
+        TODO:
         - Hashmaps to store multiple NFT
-        - Different tests
-        - cancel listing
+        - ~~Different tests~~
+        - ~~cancel listing~~
         - emit events
         - single function to create collection and NFT
         - Typescript tests
@@ -169,28 +170,47 @@ module Marketplace::FixedPriceSale {
     }
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, aptos_framework = @0x1)]
-    #[expected_failure(abort_code = 4)]
-    public fun cancel_after_sold_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem {
+    public fun end_to_end(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
-
         let constants = get_constants();
-
         let seller_addr = signer::address_of(&seller);
         let buyer_addr = signer::address_of(&buyer);
 
-
         initialize_coin_and_mint(&module_owner, &seller, constants.initial_mint_amount);
         assert!(coin::balance<FakeCoin>(seller_addr) == constants.initial_mint_amount, EINVALID_BALANCE);
-
         mint(&module_owner, &buyer, constants.initial_mint_amount);
         assert!(coin::balance<FakeCoin>(buyer_addr) == constants.initial_mint_amount, EINVALID_BALANCE);
-
         // mint a token
         create_collection_and_token(&seller, &constants);
 
         list_token<FakeCoin>(&seller, seller_addr, constants.collection_name, constants.token_name, constants.list_price , constants.expiration_time, constants.property_version);
         assert!(exists<ListingItem<FakeCoin>>(seller_addr), EITEM_NOT_LISTED);
+        buy_token<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version);
+        let token = token::create_token_id_raw(seller_addr, string::utf8(constants.collection_name), string::utf8(constants.token_name), constants.property_version); 
+        assert!(!exists<ListingItem<FakeCoin>>(seller_addr), ERESOURCE_NOT_DESTROYED);
+        assert!(token::balance_of(seller_addr, token) == 0, ESELLER_STILL_OWNS_TOKEN);
+        assert!(token::balance_of(buyer_addr, token) == 1, EBUYER_DOESNT_OWN_TOKEN);
+        assert!(coin::balance<FakeCoin>(buyer_addr) == (constants.initial_mint_amount - constants.list_price), EINVALID_BALANCE);
+        assert!(coin::balance<FakeCoin>(seller_addr) == (constants.initial_mint_amount + constants.list_price), EINVALID_BALANCE);
+    } 
 
+    #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, aptos_framework = @0x1)]
+    #[expected_failure(abort_code = 4)]
+    public fun cancel_after_sold_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem {
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
+        let constants = get_constants();
+        let seller_addr = signer::address_of(&seller);
+        let buyer_addr = signer::address_of(&buyer);
+
+        initialize_coin_and_mint(&module_owner, &seller, constants.initial_mint_amount);
+        assert!(coin::balance<FakeCoin>(seller_addr) == constants.initial_mint_amount, EINVALID_BALANCE);
+        mint(&module_owner, &buyer, constants.initial_mint_amount);
+        assert!(coin::balance<FakeCoin>(buyer_addr) == constants.initial_mint_amount, EINVALID_BALANCE);
+        // mint a token
+        create_collection_and_token(&seller, &constants);
+
+        list_token<FakeCoin>(&seller, seller_addr, constants.collection_name, constants.token_name, constants.list_price , constants.expiration_time, constants.property_version);
+        assert!(exists<ListingItem<FakeCoin>>(seller_addr), EITEM_NOT_LISTED);
         buy_token<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version);
         let token = token::create_token_id_raw(seller_addr, string::utf8(constants.collection_name), string::utf8(constants.token_name), constants.property_version); 
         assert!(!exists<ListingItem<FakeCoin>>(seller_addr), ERESOURCE_NOT_DESTROYED);
@@ -212,10 +232,8 @@ module Marketplace::FixedPriceSale {
 
         initialize_coin_and_mint(&module_owner, &seller, constants.initial_mint_amount);
         assert!(coin::balance<FakeCoin>(seller_addr) == constants.initial_mint_amount, EINVALID_BALANCE);
-
         mint(&module_owner, &buyer, constants.initial_mint_amount);
         assert!(coin::balance<FakeCoin>(buyer_addr) == constants.initial_mint_amount, EINVALID_BALANCE);
-
         // mint a token
         create_collection_and_token(&seller, &constants);
 
@@ -223,7 +241,6 @@ module Marketplace::FixedPriceSale {
         assert!(exists<ListingItem<FakeCoin>>(seller_addr), EITEM_NOT_LISTED); 
         cancel_listing<FakeCoin>(&seller, seller_addr, constants.collection_name, constants.token_name, constants.property_version);
         assert!(!exists<ListingItem<FakeCoin>>(seller_addr), ERESOURCE_NOT_DESTROYED); 
-
         // The user cannot buy the token since the listing has been canceled
         buy_token<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version);
     }
@@ -232,26 +249,68 @@ module Marketplace::FixedPriceSale {
     #[expected_failure(abort_code = 5)]
     public fun buy_after_expiration_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
-
         let constants = get_constants();
-
         let seller_addr = signer::address_of(&seller);
         let buyer_addr = signer::address_of(&buyer);
 
         initialize_coin_and_mint(&module_owner, &seller, constants.initial_mint_amount);
         assert!(coin::balance<FakeCoin>(seller_addr) == constants.initial_mint_amount, EINVALID_BALANCE);
-
         mint(&module_owner, &buyer, constants.initial_mint_amount);
         assert!(coin::balance<FakeCoin>(buyer_addr) == constants.initial_mint_amount, EINVALID_BALANCE);
+        create_collection_and_token(&seller, &constants);
 
-        // mint a token
+        list_token<FakeCoin>(&seller, seller_addr, constants.collection_name, constants.token_name, constants.list_price , constants.expiration_time, constants.property_version);
+        assert!(exists<ListingItem<FakeCoin>>(seller_addr), EITEM_NOT_LISTED);
+        // The buying would fail since the time has expired
+        timestamp::fast_forward_seconds(constants.expiration_time);
+        buy_token<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version);
+    } 
+
+    #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, aptos_framework = @0x1)]
+    #[expected_failure(abort_code = 1)]
+    public fun buy_when_user_doesnt_own_token_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem {
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
+        let constants = get_constants();
+        let seller_addr = signer::address_of(&seller);
+        let buyer_addr = signer::address_of(&buyer);
+        let module_owner_addr = signer::address_of(&module_owner);
+
+        initialize_coin_and_mint(&module_owner, &seller, constants.initial_mint_amount);
+        assert!(coin::balance<FakeCoin>(seller_addr) == constants.initial_mint_amount, EINVALID_BALANCE);
+        mint(&module_owner, &buyer, constants.initial_mint_amount);
+        assert!(coin::balance<FakeCoin>(buyer_addr) == constants.initial_mint_amount, EINVALID_BALANCE);
         create_collection_and_token(&seller, &constants);
 
         list_token<FakeCoin>(&seller, seller_addr, constants.collection_name, constants.token_name, constants.list_price , constants.expiration_time, constants.property_version);
         assert!(exists<ListingItem<FakeCoin>>(seller_addr), EITEM_NOT_LISTED);
 
-        // The buying would fail since the time has expired
-        timestamp::fast_forward_seconds(constants.expiration_time);
+        let token = token::create_token_id_raw(seller_addr, string::utf8(constants.collection_name), string::utf8(constants.token_name), constants.property_version); 
+        aptos_account::create_account(module_owner_addr);
+        token::opt_in_direct_transfer(&module_owner, true);
+        token::transfer(&seller, token, module_owner_addr, 1);
+        // The seller does not own token, so the method would fail
         buy_token<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version);
     } 
+
+    #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, aptos_framework = @0x1)]
+    #[expected_failure(abort_code = 6)]
+    public fun buy_with_insufficient_balance_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem {
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
+        let constants = get_constants();
+        let seller_addr = signer::address_of(&seller);
+        let buyer_addr = signer::address_of(&buyer);
+
+        initialize_coin_and_mint(&module_owner, &seller, constants.initial_mint_amount);
+        assert!(coin::balance<FakeCoin>(seller_addr) == constants.initial_mint_amount, EINVALID_BALANCE);
+        mint(&module_owner, &buyer, constants.initial_mint_amount);
+        assert!(coin::balance<FakeCoin>(buyer_addr) == constants.initial_mint_amount, EINVALID_BALANCE);
+        create_collection_and_token(&seller, &constants);
+
+        list_token<FakeCoin>(&seller, seller_addr, constants.collection_name, constants.token_name, constants.list_price , constants.expiration_time, constants.property_version);
+        assert!(exists<ListingItem<FakeCoin>>(seller_addr), EITEM_NOT_LISTED);
+        coin::transfer<FakeCoin>(&buyer, seller_addr, constants.initial_mint_amount - 10);
+        // The buyer does not have sufficient balance to buy the item so the method would fail
+        buy_token<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version);
+    } 
+
 }
