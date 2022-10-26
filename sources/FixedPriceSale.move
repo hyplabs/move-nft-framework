@@ -20,6 +20,15 @@ module Marketplace::FixedPriceSale {
     const ESELLER_STILL_OWNS_TOKEN: u64 = 8;
     const EBUYER_DOESNT_OWN_TOKEN: u64 = 9;
 
+    /*
+        - Hashmaps to store multiple NFT
+        - Different tests
+        - cancel listing
+        - emit events
+        - single function to create collection and NFT
+        - Typescript tests
+    */
+
     struct ListingItem<phantom CoinType> has key {
         list_price: u64,
         end_time: u64,
@@ -83,6 +92,23 @@ module Marketplace::FixedPriceSale {
         let token = token::withdraw_with_capability(withdrawCapability);
         token::direct_deposit_with_opt_in(buyer_addr, token);
 
+    }
+
+    public fun cancel_listing<CoinType>(seller: &signer, creator: address, collection_name: vector<u8>, token_name: vector<u8>, property_version: u64) acquires ListingItem {
+        let seller_addr = signer::address_of(seller);
+        assert!(exists<ListingItem<CoinType>>(seller_addr), EAUCTION_ITEM_DOES_NOT_EXIST);
+
+        let listing_item = borrow_global_mut<ListingItem<CoinStore>>(seller_addr);
+        assert!(token::balance_of(seller_addr, listing_item.token) > 0, ESELLER_DOESNT_OWN_TOKEN);
+
+        let list = move_from<ListingItem<CoinType>>(seller_addr);
+
+        let ListingItem<CoinType> {
+            list_price: _,
+            end_time: _,
+            token: _,
+            withdrawCapability: _
+        } = list;
     }
 
 
