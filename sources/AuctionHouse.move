@@ -157,57 +157,73 @@ module Marketplace::Auction {
         managed_coin::mint<FakeCoin>(admin, user_addr, mint_amount); 
     }
 
+    #[test_only]
+    struct Constant has drop {
+        collection_name: vector<u8>,
+        token_name: vector<u8>,
+        min_selling_price: u64,
+        duration: u64,
+        property_version: u64,
+        description: vector<u8>,
+        uri: vector<u8>,
+        maximum: u64,
+        initial_mint_amount: u64,
+        first_bid_amount: u64,
+        second_bid_amount: u64
+    }
+
+    #[test_only]
+    public fun get_constants() :Constant {
+        let constants = Constant {
+            collection_name: b"abc",
+            token_name: b"xyz",
+            min_selling_price: 100,
+            duration: 60 * 60 * 24 * 1000000 ,// duration for 1 day in microseconds
+            property_version: 0,
+            description: b"This is a token",
+            uri: b"https://example.com",
+            maximum: 10,
+            initial_mint_amount: 10000,
+            first_bid_amount: 900,
+            second_bid_amount: 1000
+        };
+        return constants
+    }
+
+    #[test_only]
+    public fun create_collection_and_token(creator: &signer, constants: &Constant) {
+        let creator_addr = signer::address_of(creator);
+        token::create_collection_script(creator, string::utf8(constants.collection_name), string::utf8(constants.description), string::utf8(constants.uri), constants.maximum, vector<bool>[false, false, false]);
+        token::create_token_script(creator, string::utf8(constants.collection_name), string::utf8(constants.token_name), string::utf8(constants.description), 1, 1, string::utf8(constants.uri), creator_addr, 100, 10, vector<bool>[false, false, false, false, false], vector<string::String>[], vector<vector<u8>>[],vector<string::String>[]);
+    }
+
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
-    // #[expected_failure(abort_code = 3)]
-    public fun can_initialize_auction(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
-
+    public fun end_to_end(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
-
-        let collection_name = b"abc";
-        let token_name = b"xyz";
-        let min_selling_price = 100;
-        let duration = 60 * 60 * 24 * 1000000; // duration for 1 day in microseconds
-        let property_version = 0;
-        let description = b"This is a token";
-        let uri = b"https://example.com";
-        let maximum = 10;
-
-        let initial_mint_amount = 10000;
-
+        let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
         let buyer_addr = signer::address_of(&buyer);
         let first_bidder_addr = signer::address_of(&first_bidder);
 
-        initialize_coin_and_mint(&module_owner, &buyer, initial_mint_amount);
+        initialize_coin_and_mint(&module_owner, &buyer, constants.initial_mint_amount);
         aptos_account::create_account(seller_addr);
         managed_coin::register<FakeCoin>(&seller);
-
-        mint(&module_owner, &first_bidder, initial_mint_amount);
-        
+        mint(&module_owner, &first_bidder, constants.initial_mint_amount);
         // mint a token
-        token::create_collection_script(&seller, string::utf8(collection_name), string::utf8(description), string::utf8(uri), maximum, vector<bool>[false, false, false]);
-        token::create_token_script(&seller, string::utf8(collection_name), string::utf8(token_name), string::utf8(description), 1, 1, string::utf8(uri), seller_addr, 100, 10, vector<bool>[false, false, false, false, false], vector<string::String>[], vector<vector<u8>>[],vector<string::String>[]);
+        create_collection_and_token(&seller, &constants);
 
-        initialize_auction<FakeCoin>(&seller, seller_addr, collection_name, token_name, min_selling_price, duration, property_version);
+        initialize_auction<FakeCoin>(&seller, seller_addr, constants.collection_name, constants.token_name, constants.min_selling_price, constants.duration, constants.property_version);
         assert!(exists<AuctionItem<FakeCoin>>(seller_addr), EAUCTION_ITEM_NOT_CREATED); 
-
-        let first_bid_amount = 900;
-        let second_bid_amount = 1000;
-
-        bid<FakeCoin>(&first_bidder, seller_addr, seller_addr, collection_name, token_name, property_version, first_bid_amount);
-        assert!(coin::balance<FakeCoin>(first_bidder_addr) == (initial_mint_amount - first_bid_amount), EINVALID_BALANCE);
-
-        bid<FakeCoin>(&buyer, seller_addr, seller_addr, collection_name, token_name, property_version, second_bid_amount);
-        assert!(coin::balance<FakeCoin>(buyer_addr) == (initial_mint_amount - second_bid_amount), EINVALID_BALANCE);
+        bid<FakeCoin>(&first_bidder, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version, constants.first_bid_amount);
+        assert!(coin::balance<FakeCoin>(first_bidder_addr) == (constants.initial_mint_amount - constants.first_bid_amount), EINVALID_BALANCE);
+        bid<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version, constants.second_bid_amount);
+        assert!(coin::balance<FakeCoin>(buyer_addr) == (constants.initial_mint_amount - constants.second_bid_amount), EINVALID_BALANCE);
         // The previous bidder getting their bid back
-        assert!(coin::balance<FakeCoin>(first_bidder_addr) == (initial_mint_amount ), EINVALID_BALANCE);
-
-
-        timestamp::fast_forward_seconds(duration/1000);
-
-        close_and_transfer<FakeCoin>(&buyer, seller_addr, seller_addr, collection_name, token_name, property_version); 
-        assert!(coin::balance<FakeCoin>(seller_addr) == (second_bid_amount), EINVALID_BALANCE);
-        let token = token::create_token_id_raw(seller_addr, string::utf8(collection_name), string::utf8(token_name), property_version); 
+        assert!(coin::balance<FakeCoin>(first_bidder_addr) == (constants.initial_mint_amount ), EINVALID_BALANCE);
+        timestamp::fast_forward_seconds(constants.duration/1000);
+        close_and_transfer<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version); 
+        assert!(coin::balance<FakeCoin>(seller_addr) == (constants.second_bid_amount), EINVALID_BALANCE);
+        let token = token::create_token_id_raw(seller_addr, string::utf8(constants.collection_name), string::utf8(constants.token_name), constants.property_version); 
         assert!(token::balance_of(seller_addr, token) == 0, ESELLER_STILL_OWNS_TOKEN);  
         assert!(token::balance_of(buyer_addr, token) == 1, EBUYER_DOESNT_OWN_TOKEN);  
         assert!(!exists<AuctionItem<FakeCoin>>(seller_addr), ERESOURCE_NOT_REMOVED) 
