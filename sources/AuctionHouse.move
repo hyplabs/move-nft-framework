@@ -198,7 +198,7 @@ module Marketplace::Auction {
     }
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
-    public fun end_to_end(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
+    public fun end_to_end_with_buyer_closing(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
@@ -227,7 +227,179 @@ module Marketplace::Auction {
         assert!(token::balance_of(seller_addr, token) == 0, ESELLER_STILL_OWNS_TOKEN);  
         assert!(token::balance_of(buyer_addr, token) == 1, EBUYER_DOESNT_OWN_TOKEN);  
         assert!(!exists<AuctionItem<FakeCoin>>(seller_addr), ERESOURCE_NOT_REMOVED) 
-
     }
 
+    #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
+    public fun end_to_end_with_seller_closing(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
+        let constants = get_constants();
+        let seller_addr = signer::address_of(&seller);
+        let buyer_addr = signer::address_of(&buyer);
+        let first_bidder_addr = signer::address_of(&first_bidder);
+
+        initialize_coin_and_mint(&module_owner, &buyer, constants.initial_mint_amount);
+        aptos_account::create_account(seller_addr);
+        managed_coin::register<FakeCoin>(&seller);
+        mint(&module_owner, &first_bidder, constants.initial_mint_amount);
+        // mint a token
+        create_collection_and_token(&seller, &constants);
+
+        initialize_auction<FakeCoin>(&seller, seller_addr, constants.collection_name, constants.token_name, constants.min_selling_price, constants.duration, constants.property_version);
+        assert!(exists<AuctionItem<FakeCoin>>(seller_addr), EAUCTION_ITEM_NOT_CREATED); 
+        bid<FakeCoin>(&first_bidder, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version, constants.first_bid_amount);
+        assert!(coin::balance<FakeCoin>(first_bidder_addr) == (constants.initial_mint_amount - constants.first_bid_amount), EINVALID_BALANCE);
+        bid<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version, constants.second_bid_amount);
+        assert!(coin::balance<FakeCoin>(buyer_addr) == (constants.initial_mint_amount - constants.second_bid_amount), EINVALID_BALANCE);
+        // The previous bidder getting their bid back
+        assert!(coin::balance<FakeCoin>(first_bidder_addr) == (constants.initial_mint_amount ), EINVALID_BALANCE);
+        timestamp::fast_forward_seconds(constants.duration/1000);
+        close_and_transfer<FakeCoin>(&seller, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version); 
+        assert!(coin::balance<FakeCoin>(seller_addr) == (constants.second_bid_amount), EINVALID_BALANCE);
+        let token = token::create_token_id_raw(seller_addr, string::utf8(constants.collection_name), string::utf8(constants.token_name), constants.property_version); 
+        assert!(token::balance_of(seller_addr, token) == 0, ESELLER_STILL_OWNS_TOKEN);  
+        assert!(token::balance_of(buyer_addr, token) == 1, EBUYER_DOESNT_OWN_TOKEN);  
+        assert!(!exists<AuctionItem<FakeCoin>>(seller_addr), ERESOURCE_NOT_REMOVED) 
+    }
+
+    #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
+    #[expected_failure(abort_code = 4)]
+    public fun initialize_auction_without_holding_token_fail(seller: signer, aptos_framework: signer, buyer: signer, module_owner: signer) {
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
+        let constants = get_constants();
+        let seller_addr = signer::address_of(&seller);
+        initialize_coin_and_mint(&module_owner, &buyer, constants.initial_mint_amount);
+        aptos_account::create_account(seller_addr);
+        managed_coin::register<FakeCoin>(&seller);
+        // mint a token
+        create_collection_and_token(&seller, &constants);
+
+        // Since buyer doesnt hold the specified token, the method would fail
+        initialize_auction<FakeCoin>(&buyer, seller_addr, constants.collection_name, constants.token_name, constants.min_selling_price, constants.duration, constants.property_version);
+    }
+
+
+    #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
+    #[expected_failure(abort_code = 2)]
+    public fun bid_after_auction_closed_fail(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
+        let constants = get_constants();
+        let seller_addr = signer::address_of(&seller);
+        let first_bidder_addr = signer::address_of(&first_bidder);
+
+        initialize_coin_and_mint(&module_owner, &buyer, constants.initial_mint_amount);
+        aptos_account::create_account(seller_addr);
+        managed_coin::register<FakeCoin>(&seller);
+        mint(&module_owner, &first_bidder, constants.initial_mint_amount);
+        // mint a token
+        create_collection_and_token(&seller, &constants);
+
+        initialize_auction<FakeCoin>(&seller, seller_addr, constants.collection_name, constants.token_name, constants.min_selling_price, constants.duration, constants.property_version);
+        assert!(exists<AuctionItem<FakeCoin>>(seller_addr), EAUCTION_ITEM_NOT_CREATED); 
+        bid<FakeCoin>(&first_bidder, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version, constants.first_bid_amount);
+        assert!(coin::balance<FakeCoin>(first_bidder_addr) == (constants.initial_mint_amount - constants.first_bid_amount), EINVALID_BALANCE);
+        // Cannot bid after the auction duration is over
+        timestamp::fast_forward_seconds(constants.duration);
+        bid<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version, constants.second_bid_amount);
+    }
+
+
+
+    #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
+    #[expected_failure(abort_code = 12)]
+    public fun external_user_closing_auction_fail(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
+        let constants = get_constants();
+        let seller_addr = signer::address_of(&seller);
+        let buyer_addr = signer::address_of(&buyer);
+        let first_bidder_addr = signer::address_of(&first_bidder);
+
+        initialize_coin_and_mint(&module_owner, &buyer, constants.initial_mint_amount);
+        aptos_account::create_account(seller_addr);
+        managed_coin::register<FakeCoin>(&seller);
+        mint(&module_owner, &first_bidder, constants.initial_mint_amount);
+        // mint a token
+        create_collection_and_token(&seller, &constants);
+
+        initialize_auction<FakeCoin>(&seller, seller_addr, constants.collection_name, constants.token_name, constants.min_selling_price, constants.duration, constants.property_version);
+        assert!(exists<AuctionItem<FakeCoin>>(seller_addr), EAUCTION_ITEM_NOT_CREATED); 
+        bid<FakeCoin>(&first_bidder, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version, constants.first_bid_amount);
+        assert!(coin::balance<FakeCoin>(first_bidder_addr) == (constants.initial_mint_amount - constants.first_bid_amount), EINVALID_BALANCE);
+        bid<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version, constants.second_bid_amount);
+        assert!(coin::balance<FakeCoin>(buyer_addr) == (constants.initial_mint_amount - constants.second_bid_amount), EINVALID_BALANCE);
+        // The previous bidder getting their bid back
+        assert!(coin::balance<FakeCoin>(first_bidder_addr) == (constants.initial_mint_amount ), EINVALID_BALANCE);
+        timestamp::fast_forward_seconds(constants.duration/1000);
+        close_and_transfer<FakeCoin>(&first_bidder, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version); 
+    }
+
+    #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
+    #[expected_failure(abort_code = 3)]
+    public fun bidding_less_than_previous_fail(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
+        let constants = get_constants();
+        let seller_addr = signer::address_of(&seller);
+        let first_bidder_addr = signer::address_of(&first_bidder);
+
+        initialize_coin_and_mint(&module_owner, &buyer, constants.initial_mint_amount);
+        aptos_account::create_account(seller_addr);
+        managed_coin::register<FakeCoin>(&seller);
+        mint(&module_owner, &first_bidder, constants.initial_mint_amount);
+        // mint a token
+        create_collection_and_token(&seller, &constants);
+
+        initialize_auction<FakeCoin>(&seller, seller_addr, constants.collection_name, constants.token_name, constants.min_selling_price, constants.duration, constants.property_version);
+        assert!(exists<AuctionItem<FakeCoin>>(seller_addr), EAUCTION_ITEM_NOT_CREATED); 
+        bid<FakeCoin>(&first_bidder, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version, constants.first_bid_amount);
+        assert!(coin::balance<FakeCoin>(first_bidder_addr) == (constants.initial_mint_amount - constants.first_bid_amount), EINVALID_BALANCE);
+        bid<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version, constants.first_bid_amount - 100);
+    }
+
+    #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
+    #[expected_failure(abort_code = 7)]
+    public fun transfering_before_auction_ends_fail(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
+        let constants = get_constants();
+        let seller_addr = signer::address_of(&seller);
+        let buyer_addr = signer::address_of(&buyer);
+        let first_bidder_addr = signer::address_of(&first_bidder);
+
+        initialize_coin_and_mint(&module_owner, &buyer, constants.initial_mint_amount);
+        aptos_account::create_account(seller_addr);
+        managed_coin::register<FakeCoin>(&seller);
+        mint(&module_owner, &first_bidder, constants.initial_mint_amount);
+        // mint a token
+        create_collection_and_token(&seller, &constants);
+
+        initialize_auction<FakeCoin>(&seller, seller_addr, constants.collection_name, constants.token_name, constants.min_selling_price, constants.duration, constants.property_version);
+        assert!(exists<AuctionItem<FakeCoin>>(seller_addr), EAUCTION_ITEM_NOT_CREATED); 
+        bid<FakeCoin>(&first_bidder, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version, constants.first_bid_amount);
+        assert!(coin::balance<FakeCoin>(first_bidder_addr) == (constants.initial_mint_amount - constants.first_bid_amount), EINVALID_BALANCE);
+        bid<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version, constants.second_bid_amount);
+        assert!(coin::balance<FakeCoin>(buyer_addr) == (constants.initial_mint_amount - constants.second_bid_amount), EINVALID_BALANCE);
+        // The previous bidder getting their bid back
+        assert!(coin::balance<FakeCoin>(first_bidder_addr) == (constants.initial_mint_amount ), EINVALID_BALANCE);
+        close_and_transfer<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version); 
+    }
+
+    #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
+    #[expected_failure(abort_code = 5)]
+    public fun bidding_with_low_balance_fail(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
+        let constants = get_constants();
+        let seller_addr = signer::address_of(&seller);
+        let first_bidder_addr = signer::address_of(&first_bidder);
+
+        initialize_coin_and_mint(&module_owner, &buyer, 10);
+        aptos_account::create_account(seller_addr);
+        managed_coin::register<FakeCoin>(&seller);
+        mint(&module_owner, &first_bidder, constants.initial_mint_amount);
+        // mint a token
+        create_collection_and_token(&seller, &constants);
+
+        initialize_auction<FakeCoin>(&seller, seller_addr, constants.collection_name, constants.token_name, constants.min_selling_price, constants.duration, constants.property_version);
+        assert!(exists<AuctionItem<FakeCoin>>(seller_addr), EAUCTION_ITEM_NOT_CREATED); 
+        bid<FakeCoin>(&first_bidder, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version, constants.first_bid_amount);
+        assert!(coin::balance<FakeCoin>(first_bidder_addr) == (constants.initial_mint_amount - constants.first_bid_amount), EINVALID_BALANCE);
+        bid<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version, constants.second_bid_amount);
+    }
 }
