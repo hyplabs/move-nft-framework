@@ -26,7 +26,7 @@ module Marketplace::FixedPriceSale {
         - ~~Different tests~~
         - ~~cancel listing~~
         - emit events
-        - single function to create collection and NFT
+        - ~~single function to create collection and NFT~~
         - Typescript tests
     */
 
