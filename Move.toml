@@ -1,6 +1,7 @@
 [package]
 name = 'marketplace'
 version = '1.0.0'
+upgrade_policy = "compatible"
 
 [addresses]
 Marketplace = "7f3d5a9cb25dcd7b3f9a73d266b96b62c13e0326abc0755c7f619ed2b908e98f"

@@ -48,7 +48,7 @@ module Marketplace::Auction {
         // Creating a Coin<CoinType> with zero value which would be increased when someone bids
         let zero_coin = coin::zero<CoinType>();
 
-        let withdrawCapability = token::create_withdraw_capability(sender, token_id, 1, 100000000);
+        let withdrawCapability = token::create_withdraw_capability(sender, token_id, 1, end_time + 1000000);
 
         move_to<AuctionItem<CoinType>>(sender, 
             AuctionItem{
