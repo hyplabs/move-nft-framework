@@ -86,6 +86,13 @@ type AuctionItem = {
   withdrawCapability?: WithdrawCapability;
 };
 
+type ListingItem = {
+  list_price?: string,
+  end_time?: string,
+  token?: TokenId,
+  withdrawCapability?: WithdrawCapability
+}
+
 function stringToHex(text: string) {
   const encoder = new TextEncoder();
   const encoded = encoder.encode(text);
@@ -171,12 +178,27 @@ describe("set up account, mint tokens and publish module", () => {
         aliceTokens[0].uri
       );
       await client.waitForTransaction(tx1, { checkSuccess: true });
-      const aliceTokenData = await tokenClient.getTokenData(
+      const tx2 = await tokenClient.createToken(
+        alice,
+        aliceCollection.name,
+        aliceTokens[1].name,
+        aliceTokens[1].description,
+        aliceTokens[1].supply,
+        aliceTokens[1].uri
+      );
+      await client.waitForTransaction(tx2, { checkSuccess: true });
+      const aliceToken1Data = await tokenClient.getTokenData(
         alice.address(),
         aliceCollection.name,
         aliceTokens[0].name
       );
-      expect(aliceTokenData.name).toBe(aliceTokens[0].name);
+      const aliceToken2Data = await tokenClient.getTokenData(
+        alice.address(),
+        aliceCollection.name,
+        aliceTokens[1].name
+      );
+      expect(aliceToken1Data.name).toBe(aliceTokens[0].name);
+      expect(aliceToken2Data.name).toBe(aliceTokens[1].name);
     } catch (error) {
       throw error;
     }
@@ -328,8 +350,11 @@ describe("Auction House Transaction", () => {
         },
         property_version: `0`,
       };
-      const bobTokenBalance = await tokenClient.getTokenForAccount(bob.address(), tokenId);
-      expect(Number(bobTokenBalance.amount)).toBe(1)
+      const bobTokenBalance = await tokenClient.getTokenForAccount(
+        bob.address(),
+        tokenId
+      );
+      expect(Number(bobTokenBalance.amount)).toBe(1);
     } catch (error) {
       console.log(error);
       throw error;
@@ -337,3 +362,82 @@ describe("Auction House Transaction", () => {
   });
 });
 
+describe("Fixed Price Transaction", () => {
+  it("can initialize listing", async () => {
+    // For a custom transaction, pass the function name with deployed address
+    // syntax: deployed_address::module_name::struct_name
+    const data = [
+      alice.address(),
+      aliceCollection.name,
+      aliceTokens[1].name,
+      100,
+      2000000,
+      0,
+    ];
+    const payload = {
+      arguments: data,
+      function: `${moduleOwner.address()}::FixedPriceSale::list_token`,
+      type: "entry_function_payload",
+      type_arguments: ["0x1::aptos_coin::AptosCoin"],
+    };
+    try {
+      const transaction = await client.generateTransaction(
+        alice.address(),
+        payload
+      );
+      const signature = await client.signTransaction(alice, transaction);
+      const tx = await client.submitTransaction(signature);
+      await client.waitForTransaction(tx.hash, { checkSuccess: true });
+      const resource = await client.getAccountResource(
+        alice.address(),
+        `${moduleOwner.address()}::FixedPriceSale::ListingItem<0x1::aptos_coin::AptosCoin>`
+      );
+      const aliceData: ListingItem = resource.data;
+      expect(Number(aliceData.list_price)).toBe(100);
+    } catch (error) {
+      throw error;
+    }
+  });
+
+  it("can purchase the listed token", async () => {
+    // await sleep(4000);
+    const data = [
+      alice.address(),
+      alice.address(),
+      aliceCollection.name,
+      aliceTokens[0].name,
+      0,
+    ];
+    const payload = {
+      arguments: data,
+      function: `${moduleOwner.address()}::FixedPriceSale::buy_token`,
+      type: "entry_function_payload",
+      type_arguments: ["0x1::aptos_coin::AptosCoin"],
+    };
+    try {
+      const transaction = await client.generateTransaction(
+        bob.address(),
+        payload
+      );
+      const signature = await client.signTransaction(bob, transaction);
+      const tx = await client.submitTransaction(signature);
+      await client.waitForTransaction(tx.hash, { checkSuccess: true });
+      const tokenId = {
+        token_data_id: {
+          creator: alice.address().hex(),
+          collection: aliceCollection.name,
+          name: aliceTokens[1].name,
+        },
+        property_version: `0`,
+      };
+      const bobTokenBalance = await tokenClient.getTokenForAccount(
+        bob.address(),
+        tokenId
+      );
+      expect(Number(bobTokenBalance.amount)).toBe(1);
+    } catch (error) {
+      console.log(error);
+      throw error;
+    }
+  });
+});

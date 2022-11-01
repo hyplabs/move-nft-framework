@@ -49,7 +49,7 @@ module Marketplace::FixedPriceSale {
         let start_time = timestamp::now_microseconds();
         let end_time = expiration_time + start_time;
 
-        let withdrawCapability = token::create_withdraw_capability(sender, token_id, 1, expiration_time);
+        let withdrawCapability = token::create_withdraw_capability(sender, token_id, 1, end_time);
 
         move_to<ListingItem<CoinType>>(sender, 
             ListingItem{
