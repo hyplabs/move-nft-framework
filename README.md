@@ -16,7 +16,7 @@ the `close_and_transfer` function.
 - The buyer can call the function and transfer the amount in listing price and once it is succeeded, the NFT would be transfered to the buyer without having the need of the seller's signature.
 - If the seller changes their, they can cancel the listing which would destroy the withdrawal permission gained by the contract.
 
-## How to run
+## How to run move modules
 
 Make sure that you have `aptos` cli installed. If not install it from here: https://aptos.dev/cli-tools/aptos-cli-tool/install-aptos-cli/
 
@@ -36,3 +36,22 @@ aptos move publish
 The aptos init creates a new keypair using which the module can be published.
 Note: Publishing the module with the current address wont be possible since the auth key is not present. You would have to create a new keypair and then
 replace it in move.toml to continue.
+
+## How to run tests
+
+- Compile the module with metadata
+```
+aptos move compile --save-metadata
+```
+- Run the local node in another terminal ( since the local node runs at port `:8080` and `:8081` , make sure it is free and the `force-restart` deletes the previous logs and starts a fresh session )
+```
+aptos node run-local-testnet --with-faucet --force-restart --assume-yes
+```
+- Downloads all the packages and run the tests
+```
+yarn install or npm install 
+```
+- Run the tests
+```
+yarn test or npm test
+```
