@@ -4,6 +4,9 @@ module Marketplace::FixedPriceSale {
     use std::string;
 
     use aptos_token::token;
+
+    use aptos_std::table::{Self, Table};
+
     use aptos_framework::coin;
     use aptos_framework::timestamp;
     use aptos_framework::managed_coin;
@@ -22,7 +25,7 @@ module Marketplace::FixedPriceSale {
 
     /*
         TODO:
-        - Hashmaps to store multiple NFT
+        - ~~Hashmaps to store multiple NFT~~
         - ~~Different tests~~
         - ~~cancel listing~~
         - emit events
@@ -30,14 +33,18 @@ module Marketplace::FixedPriceSale {
         - Typescript tests
     */
 
-    struct ListingItem<phantom CoinType> has key {
+    struct Item<phantom CoinType> has store {
         list_price: u64,
         end_time: u64,
         token: token::TokenId,
         withdrawCapability: token::WithdrawCapability
     }
 
-    public entry fun list_token<CoinType>(sender: &signer, creator: address, collection_name: vector<u8>, token_name: vector<u8>, list_price: u64, expiration_time: u64, property_version: u64) {
+    struct ListingItem<phantom CoinType> has key {
+        items: Table<token::TokenId, Item<CoinType>> 
+    }
+
+    public entry fun list_token<CoinType>(sender: &signer, creator: address, collection_name: vector<u8>, token_name: vector<u8>, list_price: u64, expiration_time: u64, property_version: u64) acquires ListingItem {
 
         let sender_addr = signer::address_of(sender);
         let token_id = token::create_token_id_raw(creator, string::utf8(collection_name), string::utf8(token_name), property_version);
@@ -50,15 +57,22 @@ module Marketplace::FixedPriceSale {
         let end_time = expiration_time + start_time;
 
         let withdrawCapability = token::create_withdraw_capability(sender, token_id, 1, end_time);
-
-        move_to<ListingItem<CoinType>>(sender, 
-            ListingItem{
+        let item = Item {
                 list_price, 
                 end_time, 
                 token: token_id,
                 withdrawCapability
-                }
-        );
+        };
+        if (exists<ListingItem<CoinType>>(sender_addr)) {
+            let list_items = borrow_global_mut<ListingItem<CoinType>>(sender_addr);
+            table::add(&mut list_items.items, token_id, item);
+        } else {
+            let new_item = table::new();
+            table::add(&mut new_item, token_id, item);
+            move_to<ListingItem<CoinType>>(sender, 
+             ListingItem {items: new_item }
+            );
+        };
     }
 
     public entry fun create_collection_token_and_list<CoinType>(
@@ -80,7 +94,7 @@ module Marketplace::FixedPriceSale {
         property_types: vector<string::String>,
         list_price: u64, 
         expiration_time: u64, 
-    ) {
+    ) acquires ListingItem {
         let creator_addr = signer::address_of(creator); 
         token::create_collection_script(
             creator, 
@@ -116,22 +130,32 @@ module Marketplace::FixedPriceSale {
 
         let withdrawCapability = token::create_withdraw_capability(creator, token_id, 1, expiration_time);
 
-        move_to<ListingItem<CoinType>>(creator, 
-            ListingItem{
+        let item = Item {
                 list_price, 
                 end_time, 
                 token: token_id,
                 withdrawCapability
-                }
-        );
+        };
+        if (exists<ListingItem<CoinType>>(creator_addr)) {
+            let list_items = borrow_global_mut<ListingItem<CoinType>>(creator_addr);
+            table::add(&mut list_items.items, token_id, item);
+        } else {
+            let new_item = table::new();
+            table::add(&mut new_item, token_id, item);
+            move_to<ListingItem<CoinType>>(creator, 
+             ListingItem {items: new_item }
+            );
+        };
     }
 
-    public entry fun buy_token<CoinType>(buyer: &signer, seller: address, _creator: address, _collection_name: vector<u8>, _token_name: vector<u8>, _property_version: u64) acquires ListingItem {
+    public entry fun buy_token<CoinType>(buyer: &signer, seller: address, creator: address, collection_name: vector<u8>, token_name: vector<u8>, property_version: u64) acquires ListingItem {
 
         assert!(exists<ListingItem<CoinType>>(seller), EAUCTION_ITEM_DOES_NOT_EXIST);
 
         let buyer_addr = signer::address_of(buyer);
-        let listing_item = borrow_global_mut<ListingItem<CoinType>>(seller);
+        let token_id = token::create_token_id_raw(creator, string::utf8(collection_name), string::utf8(token_name), property_version);
+        let listing_items = borrow_global_mut<ListingItem<CoinType>>(seller);
+        let listing_item = table::borrow_mut(&mut listing_items.items, token_id);
 
         let current_time = timestamp::now_microseconds();
         assert!(current_time < listing_item.end_time, ELISTING_IS_CLOSED);
@@ -143,9 +167,9 @@ module Marketplace::FixedPriceSale {
         token::opt_in_direct_transfer(buyer, true);
 
 
-        let list = move_from<ListingItem<CoinType>>(seller);
+        let list = table::remove(&mut listing_items.items, token_id);
 
-        let ListingItem<CoinType> {
+        let Item<CoinType> {
             list_price: price,
             end_time: _,
             token: _,
@@ -160,16 +184,18 @@ module Marketplace::FixedPriceSale {
 
     }
 
-    public fun cancel_listing<CoinType>(seller: &signer, _creator: address, _collection_name: vector<u8>, _token_name: vector<u8>, _property_version: u64) acquires ListingItem {
+    public fun cancel_listing<CoinType>(seller: &signer, creator: address, collection_name: vector<u8>, token_name: vector<u8>, property_version: u64) acquires ListingItem {
         let seller_addr = signer::address_of(seller);
         assert!(exists<ListingItem<CoinType>>(seller_addr), EAUCTION_ITEM_DOES_NOT_EXIST);
 
-        let listing_item = borrow_global_mut<ListingItem<CoinType>>(seller_addr);
+        let token_id = token::create_token_id_raw(creator, string::utf8(collection_name), string::utf8(token_name), property_version);
+        let listing_items = borrow_global_mut<ListingItem<CoinType>>(seller_addr);
+        let listing_item = table::borrow_mut(&mut listing_items.items, token_id);
         assert!(token::balance_of(seller_addr, listing_item.token) > 0, ESELLER_DOESNT_OWN_TOKEN);
 
-        let list = move_from<ListingItem<CoinType>>(seller_addr);
+        let list = table::remove(&mut listing_items.items, token_id);
 
-        let ListingItem<CoinType> {
+        let Item<CoinType> {
             list_price: _,
             end_time: _,
             token: _,
@@ -252,7 +278,6 @@ module Marketplace::FixedPriceSale {
         assert!(exists<ListingItem<FakeCoin>>(seller_addr), EITEM_NOT_LISTED);
         buy_token<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version);
         let token = token::create_token_id_raw(seller_addr, string::utf8(constants.collection_name), string::utf8(constants.token_name), constants.property_version); 
-        assert!(!exists<ListingItem<FakeCoin>>(seller_addr), ERESOURCE_NOT_DESTROYED);
         assert!(token::balance_of(seller_addr, token) == 0, ESELLER_STILL_OWNS_TOKEN);
         assert!(token::balance_of(buyer_addr, token) == 1, EBUYER_DOESNT_OWN_TOKEN);
         assert!(coin::balance<FakeCoin>(buyer_addr) == (constants.initial_mint_amount - constants.list_price), EINVALID_BALANCE);
@@ -293,7 +318,6 @@ module Marketplace::FixedPriceSale {
         assert!(exists<ListingItem<FakeCoin>>(seller_addr), EITEM_NOT_LISTED);
         buy_token<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version);
         let token = token::create_token_id_raw(seller_addr, string::utf8(constants.collection_name), string::utf8(constants.token_name), constants.property_version); 
-        assert!(!exists<ListingItem<FakeCoin>>(seller_addr), ERESOURCE_NOT_DESTROYED);
         assert!(token::balance_of(seller_addr, token) == 0, ESELLER_STILL_OWNS_TOKEN);
         assert!(token::balance_of(buyer_addr, token) == 1, EBUYER_DOESNT_OWN_TOKEN);
         assert!(coin::balance<FakeCoin>(buyer_addr) == (constants.initial_mint_amount - constants.list_price), EINVALID_BALANCE);
@@ -301,7 +325,7 @@ module Marketplace::FixedPriceSale {
     } 
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, aptos_framework = @0x1)]
-    #[expected_failure(abort_code = 4)]
+    #[expected_failure(abort_code = 25863)]
     public fun cancel_after_sold_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
@@ -319,7 +343,6 @@ module Marketplace::FixedPriceSale {
         assert!(exists<ListingItem<FakeCoin>>(seller_addr), EITEM_NOT_LISTED);
         buy_token<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version);
         let token = token::create_token_id_raw(seller_addr, string::utf8(constants.collection_name), string::utf8(constants.token_name), constants.property_version); 
-        assert!(!exists<ListingItem<FakeCoin>>(seller_addr), ERESOURCE_NOT_DESTROYED);
         assert!(token::balance_of(seller_addr, token) == 0, ESELLER_STILL_OWNS_TOKEN);
         assert!(token::balance_of(buyer_addr, token) == 1, EBUYER_DOESNT_OWN_TOKEN);
         assert!(coin::balance<FakeCoin>(buyer_addr) == (constants.initial_mint_amount - constants.list_price), EINVALID_BALANCE);
@@ -329,7 +352,7 @@ module Marketplace::FixedPriceSale {
     } 
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, aptos_framework = @0x1)]
-    #[expected_failure(abort_code = 4)]
+    #[expected_failure(abort_code = 25863)]
     public fun buy_after_canceled_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
@@ -346,7 +369,6 @@ module Marketplace::FixedPriceSale {
         list_token<FakeCoin>(&seller, seller_addr, constants.collection_name, constants.token_name, constants.list_price , constants.expiration_time, constants.property_version);
         assert!(exists<ListingItem<FakeCoin>>(seller_addr), EITEM_NOT_LISTED); 
         cancel_listing<FakeCoin>(&seller, seller_addr, constants.collection_name, constants.token_name, constants.property_version);
-        assert!(!exists<ListingItem<FakeCoin>>(seller_addr), ERESOURCE_NOT_DESTROYED); 
         // The user cannot buy the token since the listing has been canceled
         buy_token<FakeCoin>(&buyer, seller_addr, seller_addr, constants.collection_name, constants.token_name, constants.property_version);
     }
