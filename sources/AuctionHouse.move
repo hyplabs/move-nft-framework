@@ -4,6 +4,9 @@ module Marketplace::Auction {
     use std::string;
 
     use aptos_token::token;
+
+    use aptos_std::table::{Self, Table};
+
     use aptos_framework::coin;
     use aptos_framework::timestamp;
     use aptos_framework::managed_coin;
@@ -23,7 +26,7 @@ module Marketplace::Auction {
     const ERESOURCE_NOT_REMOVED: u64 = 11;
     const EINVALID_SIGNER: u64 = 12;
 
-    struct AuctionItem<phantom CoinType> has key {
+    struct Item<phantom CoinType> has store {
         min_selling_price: u64,
         end_time: u64,
         start_time: u64,
@@ -33,25 +36,22 @@ module Marketplace::Auction {
         withdrawCapability: token::WithdrawCapability
     }
 
-    public entry fun initialize_auction<CoinType>(sender: &signer, creator: address, collection_name: vector<u8>, token_name: vector<u8>, min_selling_price: u64, duration: u64, property_version: u64) {
+    struct AuctionItem<phantom CoinType> has key {
+        items: Table<token::TokenId, Item<CoinType>> 
+    }
+
+    public entry fun initialize_auction<CoinType>(sender: &signer, creator: address, collection_name: vector<u8>, token_name: vector<u8>, min_selling_price: u64, duration: u64, property_version: u64) acquires AuctionItem {
 
         let sender_addr = signer::address_of(sender);
         let token_id = token::create_token_id_raw(creator, string::utf8(collection_name), string::utf8(token_name), property_version);
-
-        assert!(!exists<AuctionItem<CoinType>>(sender_addr), EITEM_ALREADY_EXISTS);
         // Check if the seller actually owns the NFT
         assert!(token::balance_of(sender_addr, token_id) > 0, ESELLER_DOESNT_OWN_TOKEN);
-
         let start_time = timestamp::now_microseconds();
         let end_time = duration + start_time;
-
         // Creating a Coin<CoinType> with zero value which would be increased when someone bids
         let zero_coin = coin::zero<CoinType>();
-
         let withdrawCapability = token::create_withdraw_capability(sender, token_id, 1, end_time + 1000000);
-
-        move_to<AuctionItem<CoinType>>(sender, 
-            AuctionItem{
+        let item = Item{
                 min_selling_price, 
                 end_time, 
                 start_time, 
@@ -59,8 +59,18 @@ module Marketplace::Auction {
                 current_bidder: sender_addr, 
                 token: token_id,
                 withdrawCapability
-                }
-        );
+        };
+        if (exists<AuctionItem<CoinType>>(sender_addr)) {
+            let auction_items = borrow_global_mut<AuctionItem<CoinType>>(sender_addr);
+            table::add(&mut auction_items.items, token_id, item);
+        } else {
+            let new_item = table::new();
+            table::add(&mut new_item, token_id, item);
+            move_to<AuctionItem<CoinType>>(sender, 
+             AuctionItem {items: new_item }
+            );
+        };
+
     }
 
     public entry fun create_collection_token_and_initialize_auction<CoinType>(
@@ -82,7 +92,7 @@ module Marketplace::Auction {
         property_types: vector<string::String>,
         min_selling_price: u64, 
         duration: u64, 
-    ) {
+    ) acquires AuctionItem {
         let creator_addr = signer::address_of(creator); 
         token::create_collection_script(
             creator, 
@@ -112,37 +122,42 @@ module Marketplace::Auction {
         assert!(!exists<AuctionItem<CoinType>>(creator_addr), EITEM_ALREADY_EXISTS);
         // Check if the seller actually owns the NFT
         assert!(token::balance_of(creator_addr, token_id) > 0, ESELLER_DOESNT_OWN_TOKEN);
-
         let start_time = timestamp::now_microseconds();
         let end_time = duration + start_time;
-
         // Creating a Coin<CoinType> with zero value which would be increased when someone bids
         let zero_coin = coin::zero<CoinType>();
-
         let withdrawCapability = token::create_withdraw_capability(creator, token_id, 1, 100000000);
-
-        move_to<AuctionItem<CoinType>>(creator, 
-            AuctionItem{
-                min_selling_price, 
-                end_time, 
-                start_time, 
-                current_bid: zero_coin, 
-                current_bidder: creator_addr, 
-                token: token_id,
-                withdrawCapability
-                }
-        ); 
+        let item = Item{
+            min_selling_price, 
+            end_time, 
+            start_time, 
+            current_bid: zero_coin, 
+            current_bidder: creator_addr, 
+            token: token_id,
+            withdrawCapability
+        };
+        if (exists<AuctionItem<CoinType>>(creator_addr)) {
+            let auction_items = borrow_global_mut<AuctionItem<CoinType>>(creator_addr);
+            table::add(&mut auction_items.items, token_id, item);
+        } else {
+            let new_item = table::new();
+            table::add(&mut new_item, token_id, item);
+            move_to<AuctionItem<CoinType>>(creator,
+             AuctionItem {items: new_item }
+            );
+        };
      }
 
 
 
-    public entry fun bid<CoinType>(bidder: &signer, seller: address, _creator: address, _collection_name: vector<u8>, _token_name: vector<u8>, _property_version: u64, bid_amount: u64) acquires AuctionItem {
+    public entry fun bid<CoinType>(bidder: &signer, seller: address, creator: address, collection_name: vector<u8>, token_name: vector<u8>, property_version: u64, bid_amount: u64) acquires AuctionItem {
 
         assert!(exists<AuctionItem<CoinType>>(seller), EAUCTION_ITEM_NOT_CREATED);
 
         let bidder_addr = signer::address_of(bidder);
-
-        let auction_item = borrow_global_mut<AuctionItem<CoinType>>(seller);
+        let token_id = token::create_token_id_raw(creator, string::utf8(collection_name), string::utf8(token_name), property_version);
+        let auction_items = borrow_global_mut<AuctionItem<CoinType>>(seller);
+        let auction_item = table::borrow_mut(&mut auction_items.items, token_id);
         let current_time = timestamp::now_microseconds();
 
         let current_bid = coin::value(&mut auction_item.current_bid);
@@ -172,11 +187,13 @@ module Marketplace::Auction {
 
     }
 
-    public entry fun close_and_transfer<CoinType>(seller_or_buyer: &signer, seller: address, _creator: address, _collection_name: vector<u8>, _token_name: vector<u8>, _property_version: u64) acquires AuctionItem {
+    public entry fun close_and_transfer<CoinType>(seller_or_buyer: &signer, seller: address, creator: address, collection_name: vector<u8>, token_name: vector<u8>, property_version: u64) acquires AuctionItem {
 
         let signer_addr = signer::address_of(seller_or_buyer);
         assert!(exists<AuctionItem<CoinType>>(seller), EAUCTION_ITEM_NOT_CREATED);
-        let auction_item = borrow_global_mut<AuctionItem<CoinType>>(seller);
+        let token_id = token::create_token_id_raw(creator, string::utf8(collection_name), string::utf8(token_name), property_version);
+        let auction_items = borrow_global_mut<AuctionItem<CoinType>>(seller);
+        let auction_item = table::borrow_mut(&mut auction_items.items, token_id);
 
         if (signer_addr != seller && signer_addr != auction_item.current_bidder) {
             abort EINVALID_SIGNER
@@ -190,9 +207,9 @@ module Marketplace::Auction {
         let bid_amount = coin::extract_all<CoinType>(&mut auction_item.current_bid);
         coin::deposit<CoinType>(seller, bid_amount);
 
-        let auc = move_from<AuctionItem<CoinType>>(seller);
+        let auc = table::remove(&mut auction_items.items, token_id); 
 
-        let AuctionItem<CoinType> {
+        let Item<CoinType> {
             min_selling_price: _,
             end_time: _,
             start_time: _,
@@ -299,7 +316,6 @@ module Marketplace::Auction {
         let token = token::create_token_id_raw(seller_addr, string::utf8(constants.collection_name), string::utf8(constants.token_name), constants.property_version); 
         assert!(token::balance_of(seller_addr, token) == 0, ESELLER_STILL_OWNS_TOKEN);  
         assert!(token::balance_of(buyer_addr, token) == 1, EBUYER_DOESNT_OWN_TOKEN);  
-        assert!(!exists<AuctionItem<FakeCoin>>(seller_addr), ERESOURCE_NOT_REMOVED) 
     }
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
@@ -331,7 +347,6 @@ module Marketplace::Auction {
         let token = token::create_token_id_raw(seller_addr, string::utf8(constants.collection_name), string::utf8(constants.token_name), constants.property_version); 
         assert!(token::balance_of(seller_addr, token) == 0, ESELLER_STILL_OWNS_TOKEN);  
         assert!(token::balance_of(buyer_addr, token) == 1, EBUYER_DOESNT_OWN_TOKEN);  
-        assert!(!exists<AuctionItem<FakeCoin>>(seller_addr), ERESOURCE_NOT_REMOVED) 
     }
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
@@ -379,12 +394,11 @@ module Marketplace::Auction {
         let token = token::create_token_id_raw(seller_addr, string::utf8(constants.collection_name), string::utf8(constants.token_name), constants.property_version); 
         assert!(token::balance_of(seller_addr, token) == 0, ESELLER_STILL_OWNS_TOKEN);  
         assert!(token::balance_of(buyer_addr, token) == 1, EBUYER_DOESNT_OWN_TOKEN);  
-        assert!(!exists<AuctionItem<FakeCoin>>(seller_addr), ERESOURCE_NOT_REMOVED) 
     }
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
     #[expected_failure(abort_code = 4)]
-    public fun initialize_auction_without_holding_token_fail(seller: signer, aptos_framework: signer, buyer: signer, module_owner: signer) {
+    public fun initialize_auction_without_holding_token_fail(seller: signer, aptos_framework: signer, buyer: signer, module_owner: signer) acquires AuctionItem {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
