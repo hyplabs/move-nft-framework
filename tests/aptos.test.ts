@@ -87,11 +87,15 @@ type AuctionItem = {
 };
 
 type ListingItem = {
-  list_price?: string,
-  end_time?: string,
-  token?: TokenId,
-  withdrawCapability?: WithdrawCapability
-}
+  list_price?: string;
+  end_time?: string;
+  token?: TokenId;
+  withdrawCapability?: WithdrawCapability;
+};
+
+type Table = {
+  items?: { handle: string };
+};
 
 function stringToHex(text: string) {
   const encoder = new TextEncoder();
@@ -271,8 +275,31 @@ describe("Auction House Transaction", () => {
         alice.address(),
         `${moduleOwner.address()}::Auction::AuctionItem<0x1::aptos_coin::AptosCoin>`
       );
-      const aliceData: AuctionItem = resource.data;
-      expect(Number(aliceData.min_selling_price)).toBe(100);
+      const aliceData: Table = resource.data;
+      const handle = aliceData.items?.handle;
+
+      const tokenDataId: TokenDataId = {
+        creator: alice.address().toShortString(),
+        collection: aliceCollection.name,
+        name: aliceTokens[0].name,
+      };
+
+      const key: TokenId = {
+        token_data_id: tokenDataId,
+        property_version: "0",
+      };
+
+      if (handle != null) {
+        const item: AuctionItem = await client.getTableItem(handle, {
+          key: key,
+          key_type: "0x3::token::TokenId",
+          value_type: `${moduleOwner.address()}::Auction::Item<0x1::aptos_coin::AptosCoin>`,
+        });
+        expect(Number(item.min_selling_price)).toBe(100);
+      }
+      else {
+        throw "Resource does not exist";
+      }
     } catch (error) {
       throw error;
     }
@@ -305,15 +332,28 @@ describe("Auction House Transaction", () => {
         alice.address(),
         `${moduleOwner.address()}::Auction::AuctionItem<0x1::aptos_coin::AptosCoin>`
       );
-      const aliceData: AuctionItem = resource.data;
-      expect(Number(aliceData.current_bid?.value)).toBe(101);
-      expect(aliceData.current_bidder).toBe(bob.address().toShortString());
-      const events = await client.getEventsByEventHandle(
-        bob.address(),
-        `0x1::coin::CoinStore<0x1::aptos_coin::AptosCoin>`,
-        "withdraw_events"
-      );
-      expect(Number(events[0].data.amount)).toBe(101);
+      const aliceData: Table = resource.data;
+      const handle = aliceData.items?.handle;
+      const tokenDataId: TokenDataId = {
+        creator: alice.address().toShortString(),
+        collection: aliceCollection.name,
+        name: aliceTokens[0].name,
+      };
+      const key: TokenId = {
+        token_data_id: tokenDataId,
+        property_version: "0",
+      };
+      if (handle != null) {
+        const item: AuctionItem = await client.getTableItem(handle, {
+          key: key,
+          key_type: "0x3::token::TokenId",
+          value_type: `${moduleOwner.address()}::Auction::Item<0x1::aptos_coin::AptosCoin>`,
+        });
+        expect(Number(item.current_bid?.value)).toBe(101);
+      }
+      else {
+        throw "Resource does not exist";
+      }
     } catch (error) {
       throw error;
     }
@@ -392,8 +432,31 @@ describe("Fixed Price Transaction", () => {
         alice.address(),
         `${moduleOwner.address()}::FixedPriceSale::ListingItem<0x1::aptos_coin::AptosCoin>`
       );
-      const aliceData: ListingItem = resource.data;
-      expect(Number(aliceData.list_price)).toBe(100);
+      const aliceData: Table = resource.data;
+      const handle = aliceData.items?.handle;
+
+      const tokenDataId: TokenDataId = {
+        creator: alice.address().toShortString(),
+        collection: aliceCollection.name,
+        name: aliceTokens[1].name,
+      };
+
+      const key: TokenId = {
+        token_data_id: tokenDataId,
+        property_version: "0",
+      };
+
+      if (handle != null) {
+        const item: ListingItem = await client.getTableItem(handle, {
+          key: key,
+          key_type: "0x3::token::TokenId",
+          value_type: `${moduleOwner.address()}::FixedPriceSale::Item<0x1::aptos_coin::AptosCoin>`,
+        });
+        expect(Number(item.list_price)).toBe(100);
+      }
+      else {
+        throw "Resource does not exist";
+      }
     } catch (error) {
       throw error;
     }
@@ -405,7 +468,7 @@ describe("Fixed Price Transaction", () => {
       alice.address(),
       alice.address(),
       aliceCollection.name,
-      aliceTokens[0].name,
+      aliceTokens[1].name,
       0,
     ];
     const payload = {
