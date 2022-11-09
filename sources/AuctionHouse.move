@@ -11,6 +11,8 @@ module Marketplace::Auction {
     use aptos_framework::timestamp;
     use aptos_framework::managed_coin;
     use aptos_framework::aptos_account;
+    use aptos_framework::account;
+    use aptos_framework::event;
 
     const EITEM_ALREADY_EXISTS: u64 = 0;
     const EAUCTION_ITEM_NOT_CREATED: u64 = 1;
@@ -36,11 +38,40 @@ module Marketplace::Auction {
         withdrawCapability: token::WithdrawCapability
     }
 
+    struct CreateAuctionEvent has store, drop {
+        min_selling_price: u64,
+        end_time: u64,
+        start_time: u64,
+        seller: address,
+        token: token::TokenId
+    }
+
+    struct BidEvent has store, drop {
+        bid_price: u64,
+        bid_time: u64,
+        bidder: address,
+        token: token::TokenId,
+        previous_bid: u64
+    }
+
+    struct CompleteAuctionEvent has store, drop {
+        buy_price: u64,
+        buy_time: u64,
+        buyer: address,
+        token: token::TokenId,
+    }
+
     struct AuctionItem<phantom CoinType> has key {
         items: Table<token::TokenId, Item<CoinType>> 
     }
 
-    public entry fun initialize_auction<CoinType>(sender: &signer, creator: address, collection_name: vector<u8>, token_name: vector<u8>, min_selling_price: u64, duration: u64, property_version: u64) acquires AuctionItem {
+    struct AuctionEvents has key {
+        create_auction: event::EventHandle<CreateAuctionEvent>,
+        bid: event::EventHandle<BidEvent>,
+        complete_auction: event::EventHandle<CompleteAuctionEvent>,
+    }
+
+    public entry fun initialize_auction<CoinType>(sender: &signer, creator: address, collection_name: vector<u8>, token_name: vector<u8>, min_selling_price: u64, duration: u64, property_version: u64) acquires AuctionItem, AuctionEvents {
 
         let sender_addr = signer::address_of(sender);
         let token_id = token::create_token_id_raw(creator, string::utf8(collection_name), string::utf8(token_name), property_version);
@@ -70,6 +101,32 @@ module Marketplace::Auction {
              AuctionItem {items: new_item }
             );
         };
+        let create_auction_event = CreateAuctionEvent {
+            min_selling_price,
+            end_time,
+            start_time,
+            seller: sender_addr,
+            token: token_id 
+        };
+        if (exists<AuctionEvents>(sender_addr)) {
+            let auction_events = borrow_global_mut<AuctionEvents>(sender_addr);
+            event::emit_event<CreateAuctionEvent>(
+                &mut auction_events.create_auction,
+                create_auction_event,
+            );
+        }
+        else {
+            move_to<AuctionEvents>(sender, AuctionEvents{
+                create_auction: account::new_event_handle<CreateAuctionEvent>(sender),
+                bid: account::new_event_handle<BidEvent>(sender),
+                complete_auction: account::new_event_handle<CompleteAuctionEvent>(sender)
+            });
+            let auction_events = borrow_global_mut<AuctionEvents>(sender_addr);
+            event::emit_event<CreateAuctionEvent>(
+                &mut auction_events.create_auction,
+                create_auction_event, 
+           );
+        }
 
     }
 
@@ -92,7 +149,7 @@ module Marketplace::Auction {
         property_types: vector<string::String>,
         min_selling_price: u64, 
         duration: u64, 
-    ) acquires AuctionItem {
+    ) acquires AuctionItem, AuctionEvents {
         let creator_addr = signer::address_of(creator); 
         token::create_collection_script(
             creator, 
@@ -146,11 +203,37 @@ module Marketplace::Auction {
              AuctionItem {items: new_item }
             );
         };
+        let create_auction_event = CreateAuctionEvent {
+            min_selling_price,
+            end_time,
+            start_time,
+            seller: creator_addr,
+            token: token_id 
+        };
+        if (exists<AuctionEvents>(creator_addr)) {
+            let auction_events = borrow_global_mut<AuctionEvents>(creator_addr);
+            event::emit_event<CreateAuctionEvent>(
+                &mut auction_events.create_auction,
+                create_auction_event,
+            );
+        }
+        else {
+            move_to<AuctionEvents>(creator, AuctionEvents{
+                create_auction: account::new_event_handle<CreateAuctionEvent>(creator),
+                bid: account::new_event_handle<BidEvent>(creator),
+                complete_auction: account::new_event_handle<CompleteAuctionEvent>(creator)
+            });
+            let auction_events = borrow_global_mut<AuctionEvents>(creator_addr);
+            event::emit_event<CreateAuctionEvent>(
+                &mut auction_events.create_auction,
+                create_auction_event, 
+           );
+        }
      }
 
 
 
-    public entry fun bid<CoinType>(bidder: &signer, seller: address, creator: address, collection_name: vector<u8>, token_name: vector<u8>, property_version: u64, bid_amount: u64) acquires AuctionItem {
+    public entry fun bid<CoinType>(bidder: &signer, seller: address, creator: address, collection_name: vector<u8>, token_name: vector<u8>, property_version: u64, bid_amount: u64) acquires AuctionItem, AuctionEvents {
 
         assert!(exists<AuctionItem<CoinType>>(seller), EAUCTION_ITEM_NOT_CREATED);
 
@@ -183,11 +266,37 @@ module Marketplace::Auction {
         // The user should opt in direct transfer to claim token
         // TODO: opt in only for particular token id
         token::opt_in_direct_transfer(bidder, true);
-
+        let bid_time = timestamp::now_microseconds();
+        let bid_event = BidEvent {
+            bid_price: bid_amount, 
+            bid_time,
+            bidder: bidder_addr,
+            token: token_id,
+            previous_bid: current_bid 
+        };
+        if (exists<AuctionEvents>(bidder_addr)) {
+            let auction_events = borrow_global_mut<AuctionEvents>(bidder_addr);
+            event::emit_event<BidEvent>(
+                &mut auction_events.bid,
+                bid_event,
+            );
+        }
+        else {
+            move_to<AuctionEvents>(bidder, AuctionEvents{
+                create_auction: account::new_event_handle<CreateAuctionEvent>(bidder),
+                bid: account::new_event_handle<BidEvent>(bidder),
+                complete_auction: account::new_event_handle<CompleteAuctionEvent>(bidder),
+            });
+            let auction_events = borrow_global_mut<AuctionEvents>(bidder_addr);
+            event::emit_event<BidEvent>(
+                &mut auction_events.bid,
+                bid_event, 
+           );
+        }
 
     }
 
-    public entry fun close_and_transfer<CoinType>(seller_or_buyer: &signer, seller: address, creator: address, collection_name: vector<u8>, token_name: vector<u8>, property_version: u64) acquires AuctionItem {
+    public entry fun close_and_transfer<CoinType>(seller_or_buyer: &signer, seller: address, creator: address, collection_name: vector<u8>, token_name: vector<u8>, property_version: u64) acquires AuctionItem, AuctionEvents {
 
         let signer_addr = signer::address_of(seller_or_buyer);
         assert!(exists<AuctionItem<CoinType>>(seller), EAUCTION_ITEM_NOT_CREATED);
@@ -204,6 +313,7 @@ module Marketplace::Auction {
         assert!(token::balance_of(seller, auction_item.token) > 0, ESELLER_DOESNT_OWN_TOKEN);  
 
         // The bid amount is transfered to the seller
+        let buy_price = coin::value(&mut auction_item.current_bid);
         let bid_amount = coin::extract_all<CoinType>(&mut auction_item.current_bid);
         coin::deposit<CoinType>(seller, bid_amount);
 
@@ -224,6 +334,32 @@ module Marketplace::Auction {
         // So now the token is been transfered to the buyer without the seller needing the sign
         let token = token::withdraw_with_capability(withdrawCapability);
         token::direct_deposit_with_opt_in(buyer, token);
+        let buy_time = timestamp::now_microseconds();
+        let buy_event = CompleteAuctionEvent {
+            buy_price,
+            buy_time,
+            buyer,
+            token: token_id,
+        };
+        if (exists<AuctionEvents>(signer_addr)) {
+            let auction_events = borrow_global_mut<AuctionEvents>(signer_addr);
+            event::emit_event<CompleteAuctionEvent>(
+                &mut auction_events.complete_auction,
+                buy_event,
+            );
+        }
+        else {
+            move_to<AuctionEvents>(seller_or_buyer, AuctionEvents{
+                create_auction: account::new_event_handle<CreateAuctionEvent>(seller_or_buyer),
+                bid: account::new_event_handle<BidEvent>(seller_or_buyer),
+                complete_auction: account::new_event_handle<CompleteAuctionEvent>(seller_or_buyer),
+            });
+            let auction_events = borrow_global_mut<AuctionEvents>(signer_addr);
+            event::emit_event<CompleteAuctionEvent>(
+                &mut auction_events.complete_auction,
+                buy_event, 
+           );
+        }
         
     }
 
@@ -288,7 +424,7 @@ module Marketplace::Auction {
     }
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
-    public fun end_to_end_with_buyer_closing(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
+    public fun end_to_end_with_buyer_closing(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem, AuctionEvents {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
@@ -319,7 +455,7 @@ module Marketplace::Auction {
     }
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
-    public fun end_to_end_with_seller_closing(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
+    public fun end_to_end_with_seller_closing(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem , AuctionEvents{
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
@@ -350,7 +486,7 @@ module Marketplace::Auction {
     }
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
-    public fun end_to_end_with_creator_closing(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
+    public fun end_to_end_with_creator_closing(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem , AuctionEvents{
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
@@ -398,7 +534,7 @@ module Marketplace::Auction {
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
     #[expected_failure(abort_code = 4)]
-    public fun initialize_auction_without_holding_token_fail(seller: signer, aptos_framework: signer, buyer: signer, module_owner: signer) acquires AuctionItem {
+    public fun initialize_auction_without_holding_token_fail(seller: signer, aptos_framework: signer, buyer: signer, module_owner: signer) acquires AuctionItem , AuctionEvents{
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
@@ -415,7 +551,7 @@ module Marketplace::Auction {
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
     #[expected_failure(abort_code = 2)]
-    public fun bid_after_auction_closed_fail(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
+    public fun bid_after_auction_closed_fail(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem , AuctionEvents{
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
@@ -441,7 +577,7 @@ module Marketplace::Auction {
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
     #[expected_failure(abort_code = 12)]
-    public fun external_user_closing_auction_fail(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
+    public fun external_user_closing_auction_fail(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem , AuctionEvents{
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
@@ -469,7 +605,7 @@ module Marketplace::Auction {
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
     #[expected_failure(abort_code = 3)]
-    public fun bidding_less_than_previous_fail(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
+    public fun bidding_less_than_previous_fail(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem , AuctionEvents{
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
@@ -491,7 +627,7 @@ module Marketplace::Auction {
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
     #[expected_failure(abort_code = 7)]
-    public fun transfering_before_auction_ends_fail(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
+    public fun transfering_before_auction_ends_fail(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem , AuctionEvents{
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
@@ -518,7 +654,7 @@ module Marketplace::Auction {
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, first_bidder = @0x6, aptos_framework = @0x1)]
     #[expected_failure(abort_code = 5)]
-    public fun bidding_with_low_balance_fail(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem {
+    public fun bidding_with_low_balance_fail(seller: signer, aptos_framework: signer, buyer: signer, first_bidder: signer, module_owner: signer) acquires AuctionItem , AuctionEvents{
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);

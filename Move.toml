@@ -1,4 +1,4 @@
-[package]
+ [package]
 name = 'marketplace'
 version = '1.0.0'
 upgrade_policy = "compatible"
