@@ -11,6 +11,8 @@ module Marketplace::FixedPriceSale {
     use aptos_framework::timestamp;
     use aptos_framework::managed_coin;
     use aptos_framework::aptos_account;
+    use aptos_framework::account;
+    use aptos_framework::event;
 
     const EITEM_ALREADY_EXISTS: u64 = 0;
     const ESELLER_DOESNT_OWN_TOKEN: u64 = 1;
@@ -28,9 +30,9 @@ module Marketplace::FixedPriceSale {
         - ~~Hashmaps to store multiple NFT~~
         - ~~Different tests~~
         - ~~cancel listing~~
-        - emit events
+        - ~~emit events~~
         - ~~single function to create collection and NFT~~
-        - Typescript tests
+        - ~~Typescript tests~~
     */
 
     struct Item<phantom CoinType> has store {
@@ -40,11 +42,40 @@ module Marketplace::FixedPriceSale {
         withdrawCapability: token::WithdrawCapability
     }
 
+    struct CreateListingEvent has store, drop {
+        listing_price: u64,
+        end_time: u64,
+        start_time: u64,
+        seller: address,
+        token: token::TokenId
+    }
+
+    struct CancelEvent has store, drop {
+        listing_price: u64,
+        cancel_time: u64,
+        seller: address,
+        token: token::TokenId,
+    }
+
+    struct BuyEvent has store, drop {
+        buy_price: u64,
+        buy_time: u64,
+        buyer: address,
+        seller: address,
+        token: token::TokenId,
+    }
+
     struct ListingItem<phantom CoinType> has key {
         items: Table<token::TokenId, Item<CoinType>> 
     }
 
-    public entry fun list_token<CoinType>(sender: &signer, creator: address, collection_name: vector<u8>, token_name: vector<u8>, list_price: u64, expiration_time: u64, property_version: u64) acquires ListingItem {
+    struct ListingEvents has key {
+        create_listing: event::EventHandle<CreateListingEvent>,
+        cancel_listing: event::EventHandle<CancelEvent>,
+        complete_listing: event::EventHandle<BuyEvent>,
+    }
+
+    public entry fun list_token<CoinType>(sender: &signer, creator: address, collection_name: vector<u8>, token_name: vector<u8>, list_price: u64, expiration_time: u64, property_version: u64) acquires ListingItem, ListingEvents {
 
         let sender_addr = signer::address_of(sender);
         let token_id = token::create_token_id_raw(creator, string::utf8(collection_name), string::utf8(token_name), property_version);
@@ -73,6 +104,32 @@ module Marketplace::FixedPriceSale {
              ListingItem {items: new_item }
             );
         };
+        let create_listing_event = CreateListingEvent {
+            listing_price: list_price,
+            end_time,
+            start_time,
+            seller: sender_addr,
+            token: token_id 
+        };
+        if (exists<ListingEvents>(sender_addr)) {
+            let auction_events = borrow_global_mut<ListingEvents>(sender_addr);
+            event::emit_event<CreateListingEvent>(
+                &mut auction_events.create_listing,
+                create_listing_event,
+            );
+        }
+        else {
+            move_to<ListingEvents>(sender, ListingEvents{
+                create_listing: account::new_event_handle<CreateListingEvent>(sender),
+                cancel_listing: account::new_event_handle<CancelEvent>(sender),
+                complete_listing: account::new_event_handle<BuyEvent>(sender)
+            });
+            let auction_events = borrow_global_mut<ListingEvents>(sender_addr);
+            event::emit_event<CreateListingEvent>(
+                &mut auction_events.create_listing,
+                create_listing_event, 
+           );
+        }
     }
 
     public entry fun create_collection_token_and_list<CoinType>(
@@ -94,7 +151,7 @@ module Marketplace::FixedPriceSale {
         property_types: vector<string::String>,
         list_price: u64, 
         expiration_time: u64, 
-    ) acquires ListingItem {
+    ) acquires ListingItem, ListingEvents {
         let creator_addr = signer::address_of(creator); 
         token::create_collection_script(
             creator, 
@@ -146,9 +203,35 @@ module Marketplace::FixedPriceSale {
              ListingItem {items: new_item }
             );
         };
+        let create_listing_event = CreateListingEvent {
+            listing_price: list_price,
+            end_time,
+            start_time,
+            seller: creator_addr,
+            token: token_id 
+        };
+        if (exists<ListingEvents>(creator_addr)) {
+            let auction_events = borrow_global_mut<ListingEvents>(creator_addr);
+            event::emit_event<CreateListingEvent>(
+                &mut auction_events.create_listing,
+                create_listing_event,
+            );
+        }
+        else {
+            move_to<ListingEvents>(creator, ListingEvents{
+                create_listing: account::new_event_handle<CreateListingEvent>(creator),
+                cancel_listing: account::new_event_handle<CancelEvent>(creator),
+                complete_listing: account::new_event_handle<BuyEvent>(creator)
+            });
+            let auction_events = borrow_global_mut<ListingEvents>(creator_addr);
+            event::emit_event<CreateListingEvent>(
+                &mut auction_events.create_listing,
+                create_listing_event, 
+           );
+        }
     }
 
-    public entry fun buy_token<CoinType>(buyer: &signer, seller: address, creator: address, collection_name: vector<u8>, token_name: vector<u8>, property_version: u64) acquires ListingItem {
+    public entry fun buy_token<CoinType>(buyer: &signer, seller: address, creator: address, collection_name: vector<u8>, token_name: vector<u8>, property_version: u64) acquires ListingItem, ListingEvents {
 
         assert!(exists<ListingItem<CoinType>>(seller), EAUCTION_ITEM_DOES_NOT_EXIST);
 
@@ -181,10 +264,35 @@ module Marketplace::FixedPriceSale {
         // So now the token is been transfered to the buyer without the seller needing the sign
         let token = token::withdraw_with_capability(withdrawCapability);
         token::direct_deposit_with_opt_in(buyer_addr, token);
-
+        let complete_listing_event = BuyEvent {
+            buy_price: price,
+            buy_time: current_time,
+            buyer: buyer_addr,
+            seller,
+            token: token_id 
+        };
+        if (exists<ListingEvents>(buyer_addr)) {
+            let auction_events = borrow_global_mut<ListingEvents>(buyer_addr);
+            event::emit_event<BuyEvent>(
+                &mut auction_events.complete_listing,
+                complete_listing_event,
+            );
+        }
+        else {
+            move_to<ListingEvents>(buyer, ListingEvents{
+                create_listing: account::new_event_handle<CreateListingEvent>(buyer),
+                cancel_listing: account::new_event_handle<CancelEvent>(buyer),
+                complete_listing: account::new_event_handle<BuyEvent>(buyer)
+            });
+            let auction_events = borrow_global_mut<ListingEvents>(buyer_addr);
+            event::emit_event<BuyEvent>(
+                &mut auction_events.complete_listing,
+                complete_listing_event, 
+           );
+        }
     }
 
-    public fun cancel_listing<CoinType>(seller: &signer, creator: address, collection_name: vector<u8>, token_name: vector<u8>, property_version: u64) acquires ListingItem {
+    public fun cancel_listing<CoinType>(seller: &signer, creator: address, collection_name: vector<u8>, token_name: vector<u8>, property_version: u64) acquires ListingItem, ListingEvents{
         let seller_addr = signer::address_of(seller);
         assert!(exists<ListingItem<CoinType>>(seller_addr), EAUCTION_ITEM_DOES_NOT_EXIST);
 
@@ -196,11 +304,37 @@ module Marketplace::FixedPriceSale {
         let list = table::remove(&mut listing_items.items, token_id);
 
         let Item<CoinType> {
-            list_price: _,
+            list_price: price,
             end_time: _,
             token: _,
             withdrawCapability: _
         } = list;
+
+        let cancel_listing_event = CancelEvent {
+            listing_price: price,
+            cancel_time: timestamp::now_microseconds(),
+            seller: seller_addr,
+            token: token_id 
+        };
+        if (exists<ListingEvents>(seller_addr)) {
+            let auction_events = borrow_global_mut<ListingEvents>(seller_addr);
+            event::emit_event<CancelEvent>(
+                &mut auction_events.cancel_listing,
+                cancel_listing_event,
+            );
+        }
+        else {
+            move_to<ListingEvents>(seller, ListingEvents{
+                create_listing: account::new_event_handle<CreateListingEvent>(seller),
+                cancel_listing: account::new_event_handle<CancelEvent>(seller),
+                complete_listing: account::new_event_handle<BuyEvent>(seller)
+            });
+            let auction_events = borrow_global_mut<ListingEvents>(seller_addr);
+            event::emit_event<CancelEvent>(
+                &mut auction_events.cancel_listing,
+                cancel_listing_event, 
+           );
+        }
     }
 
 
@@ -261,7 +395,7 @@ module Marketplace::FixedPriceSale {
     }
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, aptos_framework = @0x1)]
-    public fun end_to_end_with_seller_already_owning_token(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem {
+    public fun end_to_end_with_seller_already_owning_token(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem, ListingEvents {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
@@ -285,7 +419,7 @@ module Marketplace::FixedPriceSale {
     } 
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, aptos_framework = @0x1)]
-    public fun end_to_end_with_creator_minting_token(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem {
+    public fun end_to_end_with_creator_minting_token(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem, ListingEvents {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
@@ -326,7 +460,7 @@ module Marketplace::FixedPriceSale {
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, aptos_framework = @0x1)]
     #[expected_failure(abort_code = 25863)]
-    public fun cancel_after_sold_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem {
+    public fun cancel_after_sold_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem, ListingEvents {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
@@ -353,7 +487,7 @@ module Marketplace::FixedPriceSale {
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, aptos_framework = @0x1)]
     #[expected_failure(abort_code = 25863)]
-    public fun buy_after_canceled_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem {
+    public fun buy_after_canceled_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem, ListingEvents {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
@@ -375,7 +509,7 @@ module Marketplace::FixedPriceSale {
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, aptos_framework = @0x1)]
     #[expected_failure(abort_code = 5)]
-    public fun buy_after_expiration_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem {
+    public fun buy_after_expiration_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem, ListingEvents {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
@@ -396,7 +530,7 @@ module Marketplace::FixedPriceSale {
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, aptos_framework = @0x1)]
     #[expected_failure(abort_code = 1)]
-    public fun buy_when_user_doesnt_own_token_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem {
+    public fun buy_when_user_doesnt_own_token_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem, ListingEvents {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);
@@ -422,7 +556,7 @@ module Marketplace::FixedPriceSale {
 
     #[test(module_owner = @Marketplace, seller = @0x4, buyer= @0x5, aptos_framework = @0x1)]
     #[expected_failure(abort_code = 6)]
-    public fun buy_with_insufficient_balance_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem {
+    public fun buy_with_insufficient_balance_fail(seller: signer, buyer: signer, module_owner: signer, aptos_framework: signer) acquires ListingItem, ListingEvents {
         timestamp::set_time_has_started_for_testing(&aptos_framework);
         let constants = get_constants();
         let seller_addr = signer::address_of(&seller);

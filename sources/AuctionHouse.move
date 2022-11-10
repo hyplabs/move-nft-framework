@@ -58,6 +58,7 @@ module Marketplace::Auction {
         buy_price: u64,
         buy_time: u64,
         buyer: address,
+        seller: address,
         token: token::TokenId,
     }
 
@@ -339,6 +340,7 @@ module Marketplace::Auction {
             buy_price,
             buy_time,
             buyer,
+            seller,
             token: token_id,
         };
         if (exists<AuctionEvents>(signer_addr)) {
