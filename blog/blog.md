@@ -26,7 +26,7 @@ The modules that we developed use this token standard, with extra functionality 
 We have seen a lot of marketplaces which use escrow to store the listed NFTs. But the problem is when a person lists their NFT for sale (auction or fixed price), they lose the ownership of the NFT since as its transferred to the contract. The NFT owner would not no longer hold the NFT, it would not show up in their wallet, and they couldn't benefit from its utility. Moreover, those NFTs can only be listed/escrowed in one marketplace contract. In contrast, an escrow-less contract acquires the authority to transfer the NFT from the seller in order to execute the transfer when the sale is complete. So the seller would still own the NFT until there is a buyer, and the same NFT can be listed on multiple marketplaces that use this escrow-less pattern.
 
 Let's look at the function which showcases this.
-```move
+```
 public entry fun initialize_auction<CoinType>(sender: &signer, creator: address, collection_name: vector<u8>, token_name: vector<u8>, min_selling_price: u64, duration: u64, property_version: u64) acquires AuctionItem, AuctionEvents {
     let sender_addr = signer::address_of(sender);
     let token_id = token::create_token_id_raw(creator, string::utf8(collection_name), string::utf8(token_name), property_version);
@@ -77,7 +77,7 @@ This module can achieve the following
 ### How to create a collection + list it
 
 - For creating a collection as well as a token and then listing for a fixed price sale, it can be done by calling the following function
-```move
+```
 public entry fun create_collection_token_and_list<CoinType>(
         creator: &signer,
         collection_name: vector<u8>,
@@ -101,7 +101,7 @@ public entry fun create_collection_token_and_list<CoinType>(
 ```
 In the above function, we do the following
   - Create a collection
-  ```move
+  ```
   token::create_collection_script(
       creator,
       string::utf8(collection_name),
@@ -113,7 +113,7 @@ In the above function, we do the following
   ```
   The `collection_mutate_setting` specifies if the collection data should be mutable or not. The `collection_mutate_setting` includes `collection_description`, `collection_uri` and `maximum tokens`.
   - Create a token
-  ```move
+  ```
   token::create_token_script(
       creator,
       string::utf8(collection_name),
@@ -139,7 +139,7 @@ In the above function, we do the following
 
     The token mutate setting includes `maximum tokens`, `uri`, `description` , `royalty` and `properties`.
   - Once the token and collection are created, the contract acquires the withdraw capability and stores it in the resource.
-  ```move
+  ```
     let token_id = token::create_token_id_raw(creator_addr, string::utf8(collection_name), string::utf8(token_name), 0);
 
     assert!(!exists<ListingItem<CoinType>>(creator_addr), EITEM_ALREADY_EXISTS);
