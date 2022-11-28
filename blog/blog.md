@@ -7,9 +7,12 @@ Aptos is a new layer 1 blockchain that offers novel innovations that differentia
 
 To read more about developing on Aptos, check out [their docs](https://aptosfoundation.org/developer-resources).
 
-The goal of this project was to build and open-source something that was modular; something that other developers can find benefit from and extend. NFTs were a break-out usecase in 2021, and although they were mainly for speculation, the thesis is that everything online that can be an NFT will be an NFT.
+The goal of this project was to build and open-source something that was modular; something that other developers can find benefit from and extend. NFTs were a break-out use case in 2021, and although they were mainly for speculation, the thesis is that everything online that can be an NFT will be an NFT.
 
 What if we could give developers building on Aptos a framework and supporting tools to build NFT projects? Fully tested Move modules for creating and listing NFT collections, a custom indexer, and a front-end template to work off of. They can take advantage of the features enabled by Aptos and the Move language to build experiences that were not possible on other chains.
+
+Move repo: https://github.com/hyplabs/move-nft-framework
+Nextjs repo: https://github.com/hyplabs/move-nft-create
 
 ![editions.png](editions.png)
 
