@@ -18,36 +18,40 @@ The Aptos core developers laid out the standard for tokens that are non-fungible
 
 The modules that we developed use this token standard, with extra functionality to create collections of NFTs list them for sale - via direct listings, auctions, etc.
 
-### Escrowless Marketplaces
+### Escrow-less marketplaces
 
-We have seen a lot of marketplaces which use escrow to store the listed NFTs. But the problem is when a person lists their NFT for sale (auction or fixed price ), they lose the ownership of the NFT since its moved to escrow. The NFT owner would not no longer hold the NFT even before the NFT has been bought. And those NFTs can be listed on only one marketplace since it is uses escrow system. Well these problems can be solved by using escrow-less marketplaces. In escrowless marketplaces the contract acquires the authority to transfer the NFT from the seller to buyer when the deal is completed. So the seller would own the NFT until it is being bought and the same NFT can be listed on multiple marketplaces which use escrowless contracts.
+We have seen a lot of marketplaces which use escrow to store the listed NFTs. But the problem is when a person lists their NFT for sale (auction or fixed price), they lose the ownership of the NFT since as its transferred to the contract. The NFT owner would not no longer hold the NFT, it would not show up in their wallet, and they couldn't benefit from its utility. Moreover, those NFTs can only be listed/escrowed in one marketplace contract. In contrast, an escrow-less contract acquires the authority to transfer the NFT from the seller in order to execute the transfer when the sale is complete. So the seller would still own the NFT until there is a buyer, and the same NFT can be listed on multiple marketplaces that use this escrow-less pattern.
 
-For eg:
-```
+Let's look at the function which showcases this.
+```move
 public entry fun initialize_auction<CoinType>(sender: &signer, creator: address, collection_name: vector<u8>, token_name: vector<u8>, min_selling_price: u64, duration: u64, property_version: u64) acquires AuctionItem, AuctionEvents {
-        let sender_addr = signer::address_of(sender);
-        let token_id = token::create_token_id_raw(creator, string::utf8(collection_name), string::utf8(token_name), property_version);
-        // Check if the seller actually owns the NFT
-        assert!(token::balance_of(sender_addr, token_id) > 0, ESELLER_DOESNT_OWN_TOKEN);
-        let start_time = timestamp::now_microseconds();
-        let end_time = duration + start_time;
-        // Creating a Coin<CoinType> with zero value which would be increased when someone bids
-        let zero_coin = coin::zero<CoinType>();
-        let withdrawCapability = token::create_withdraw_capability(sender, token_id, 1, end_time + 1000000);
-        let item = Item{
-                min_selling_price,
-                end_time,
-                start_time,
-                current_bid: zero_coin,
-                current_bidder: sender_addr,
-                token: token_id,
-                withdrawCapability
-        };
+    let sender_addr = signer::address_of(sender);
+    let token_id = token::create_token_id_raw(creator, string::utf8(collection_name), string::utf8(token_name), property_version);
+
+    // Check if the seller actually owns the NFT
+    assert!(token::balance_of(sender_addr, token_id) > 0, ESELLER_DOESNT_OWN_TOKEN);
+
+    let start_time = timestamp::now_microseconds();
+    let end_time = duration + start_time;
+
+    // Creating a Coin<CoinType> with zero value which would be increased when someone bids
+    let zero_coin = coin::zero<CoinType>();
+    let withdrawCapability = token::create_withdraw_capability(sender, token_id, 1, end_time + 1000000);
+    let item = Item{
+        min_selling_price,
+        end_time,
+        start_time,
+        current_bid: zero_coin,
+        current_bidder: sender_addr,
+        token: token_id,
+        withdrawCapability
+    };
+
+    ...
+}
 ```				
 
-In the above example, we can see that we don't extract the token from the seller's account. We just acquire the withdraw capability and store it in the resource. The withdraw capability would be used when the auction is completed ( in the current scenario ) and the buyer has transferred the amount. The amount gets transferred to the seller and the token is transferred from the seller to buyer ( without the seller's signature since they have already given the withdraw capability ). The `create_withdraw_capability` takes the token owner's signature, token id, quantity and the time until the withdraw capability is active. The withdraw capability would expire after the specified time.
-
-We have written 2 modules - auction house and fixed price sale and the functions of them are listed below.
+In the above example, we can see that we don't extract the token from the seller's account. We just acquire the withdraw capability and store it in the resource. The withdraw capability would be used when the auction is completed (in the current scenario) and the buyer has transferred the amount. The amount gets transferred to the seller and the token is transferred from the seller to buyer (without the seller's signature since they have already given the withdraw capability). The `create_withdraw_capability` takes the token owner's signature, token id, quantity and the time until the withdraw capability is active. The withdraw capability would expire after the specified time.
 
 ### `AuctionHouse.move`
 
@@ -70,7 +74,7 @@ This module can achieve the following
 ### How to create a collection + list it
 
 - For creating a collection as well as a token and then listing for a fixed price sale, it can be done by calling the following function
-```
+```move
 public entry fun create_collection_token_and_list<CoinType>(
         creator: &signer,
         collection_name: vector<u8>,
@@ -92,73 +96,75 @@ public entry fun create_collection_token_and_list<CoinType>(
         expiration_time: u64,
     ) acquires ListingItem, ListingEvents {
 ```
-In the above function, the following are done
+In the above function, we do the following
   - Create a collection
-  ```
+  ```move
   token::create_collection_script(
-            creator,
-            string::utf8(collection_name),
-            string::utf8(collection_description),
-            string::utf8(collection_uri),
-            collection_maximum,
-            collection_mutate_setting
-        );
+      creator,
+      string::utf8(collection_name),
+      string::utf8(collection_description),
+      string::utf8(collection_uri),
+      collection_maximum,
+      collection_mutate_setting
+  );
   ```
   The `collection_mutate_setting` specifies if the collection data should be mutable or not. The `collection_mutate_setting` includes `collection_description`, `collection_uri` and `maximum tokens`.
   - Create a token
-  ```
+  ```move
   token::create_token_script(
-            creator,
-            string::utf8(collection_name),
-            string::utf8(token_name),
-            string::utf8(token_description),
-            1, // amount
-            1, // maximum
-            string::utf8(token_uri),
-            royalty_payee_address,
-            royalty_points_denominator,
-            royalty_points_numerator,
-            token_mutate_setting,
-            property_keys,
-            property_values,
-            property_types
-        );   
+      creator,
+      string::utf8(collection_name),
+      string::utf8(token_name),
+      string::utf8(token_description),
+      1, // amount
+      1, // maximum
+      string::utf8(token_uri),
+      royalty_payee_address,
+      royalty_points_denominator,
+      royalty_points_numerator,
+      token_mutate_setting,
+      property_keys,
+      property_values,
+      property_types
+  );   
   ```
-  unlike other chains where the token metadata is stored on the json file along with image uri, in Aptos the metadata is stored on chain. The property keys, values and types specify the token metadata.
-  For eg: If you want to store : `gender: "male"`, the format arguments would be following
+  Unlike other chains where token metadata is often stored off-chain, in Aptos the metadata can be stored on chain. The property keys, values and types specify the token metadata.
+  For example, if you want to store: `gender: "male"`, the format arguments would be following
       - property_key: gender
       - property_values: male,
       - property_types: vector<u8>
-  The token mutate setting includes `maximum tokens`, `uri`, `description` , `royalty` and `properties`.
+
+    The token mutate setting includes `maximum tokens`, `uri`, `description` , `royalty` and `properties`.
   - Once the token and collection are created, the contract acquires the withdraw capability and stores it in the resource.
+  ```move
+    let token_id = token::create_token_id_raw(creator_addr, string::utf8(collection_name), string::utf8(token_name), 0);
+
+    assert!(!exists<ListingItem<CoinType>>(creator_addr), EITEM_ALREADY_EXISTS);
+
+    // Check if the seller actually owns the NFT
+    assert!(token::balance_of(creator_addr, token_id) > 0, ESELLER_DOESNT_OWN_TOKEN);
+
+    let start_time = timestamp::now_microseconds();
+    let end_time = expiration_time + start_time;
+
+    let withdrawCapability = token::create_withdraw_capability(creator, token_id, 1, expiration_time);
+
+    let item = Item {
+        list_price,
+        end_time,
+        token: token_id,
+        withdrawCapability
+    };
   ```
-          let token_id = token::create_token_id_raw(creator_addr, string::utf8(collection_name), string::utf8(token_name), 0);
-        assert!(!exists<ListingItem<CoinType>>(creator_addr), EITEM_ALREADY_EXISTS);
-        // Check if the seller actually owns the NFT
-        assert!(token::balance_of(creator_addr, token_id) > 0, ESELLER_DOESNT_OWN_TOKEN);
 
-        let start_time = timestamp::now_microseconds();
-        let end_time = expiration_time + start_time;
 
-        let withdrawCapability = token::create_withdraw_capability(creator, token_id, 1, expiration_time);
-
-        let item = Item {
-                list_price,
-                end_time,
-                token: token_id,
-                withdrawCapability
-        };
-  ```
-
-  So in our case, the module doesn't take ownership of the token ( like escrow marketplaces ), what our module does instead is gain the withdraw capability. This allows the seller to still keep the ownership of the token until the buyer has bought it. The module can gain the withdrawal capability using which it can withdraw the token from the seller (if it exists) without the need of the seller's signature. This makes the module extremely powerful in managing the deals with the best user experience.
-
-  The withdraw capability is used to transfer the token from seller's account to buyer's account when buyer transfer the listed amount to the seller. The withdraw capability requires the signer of the seller so when the buyer buys the token, the seller doesn't need to sign. The withdraw capability would be used to perform the action.
+  In our case, the module doesn't take ownership of the token; what it does instead is gain the withdraw capability. This allows the seller to maintain ownership of the token until someone executes the sale transaction. The module gains the withdrawal capability in order to withdraw the token from the seller (if it exists) without the need of the seller's signature. This makes the module extremely powerful in managing the deals with the best user experience.
 
 ## TODOs (for anyone wishing to branch off)
 The marketplace modules we developed are by no means production-ready, and anyone wishing to branch off should consider an audit. Moreover, there's a few features that should be considered before a production deployment
 
 ### Custom indexer
-The Aptos team provides a public indexing service for all Token and Coin module events. In order the index the custom events emitted from our marketplace modules, we should run our own indexer. This way, our front-end application can quickly query on-chain data such as live auctions, historical sales, and bids. Read more on the the Aptos [developer docs](https://aptos.dev/guides/indexing/)
+The Aptos team provides a public indexing service for all Token and Coin module events. In order the index the custom events emitted from our marketplace modules, we should run our own indexer. This way, our front-end application can quickly query on-chain data such as live auctions, historical sales, and bids. Read more on the the Aptos [developer docs](https://aptos.dev/guides/indexing/).
 
 ![aptos-indexing-dark](https://aptos.dev/img/docs/aptos-indexing-dark.svg)
 
