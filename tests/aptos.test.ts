@@ -12,10 +12,10 @@ import * as fs from "fs";
 import { sha3_256 } from "@noble/hashes/sha3";
 import { exec } from "child_process";
 
-const NODE_URL = "http://localhost:8080";
-const FAUCET_URL = "http://localhost:8081";
-// const NODE_URL = "http://fullnode.devnet.aptoslabs.com"
-// const FAUCET_URL = "https://faucet.devnet.aptoslabs.com"
+// const NODE_URL = "http://127.0.0.1:8080";
+// const FAUCET_URL = "http://127.0.0.1:8081";
+const NODE_URL: string = "https://fullnode.devnet.aptoslabs.com/v1/"
+const FAUCET_URL = "https://faucet.devnet.aptoslabs.com"
 let alice: AptosAccount;
 let bob: AptosAccount;
 let cas: AptosAccount;
@@ -126,6 +126,7 @@ function sleep(ms: number) {
 
 describe("set up account, mint tokens and publish module", () => {
   it("Is able to fund the accounts", async () => {
+    // if (NODE_URL === "")
     const moduleOwnerKeys = {
       address:
         "0x7f3d5a9cb25dcd7b3f9a73d266b96b62c13e0326abc0755c7f619ed2b908e98f",
@@ -149,6 +150,8 @@ describe("set up account, mint tokens and publish module", () => {
     expect(Number(aliceBalance)).toBe(initialFund);
     expect(Number(bobBalance)).toBe(initialFund);
     expect(Number(casBalance)).toBe(initialFund);
+    console.log("alice address: ", alice.address());
+    console.log("bob address: ", bob.address());
   });
 
   it("is able to mint some tokens", async () => {
@@ -160,13 +163,14 @@ describe("set up account, mint tokens and publish module", () => {
         aliceCollection.description,
         aliceCollection.uri
       );
-      await client.waitForTransaction(tx, { checkSuccess: true });
+      await client.waitForTransaction(tx);
       const collectionData = await tokenClient.getCollectionData(
         alice.address(),
         aliceCollection.name
       );
       expect(collectionData.name).toBe(aliceCollection.name);
     } catch (error) {
+      console.log(error);
       throw error;
     }
   });
@@ -204,6 +208,7 @@ describe("set up account, mint tokens and publish module", () => {
       expect(aliceToken1Data.name).toBe(aliceTokens[0].name);
       expect(aliceToken2Data.name).toBe(aliceTokens[1].name);
     } catch (error) {
+      console.log(error);
       throw error;
     }
   });
@@ -229,6 +234,7 @@ describe("set up account, mint tokens and publish module", () => {
         ),
       ]
     );
+    console.log("published hash: ", txnHash);
     try {
       await client.waitForTransaction(txnHash, { checkSuccess: true });
     } catch (error) {
@@ -249,12 +255,17 @@ describe("Auction House Transaction", () => {
   it("can initialize auction", async () => {
     // For a custom transaction, pass the function name with deployed address
     // syntax: deployed_address::module_name::struct_name
+    let expirationTime = 0;
+    if (NODE_URL == "http://127.0.0.1:8080") 
+      expirationTime = 2000000; 
+    else
+      expirationTime = 8000000;
     const data = [
       alice.address(),
       aliceCollection.name,
       aliceTokens[0].name,
       100,
-      2000000,
+      expirationTime,
       0,
     ];
     const payload = {
@@ -355,6 +366,7 @@ describe("Auction House Transaction", () => {
         throw "Resource does not exist";
       }
     } catch (error) {
+      console.log(error);
       throw error;
     }
   });
@@ -411,7 +423,7 @@ describe("Fixed Price Transaction", () => {
       aliceCollection.name,
       aliceTokens[1].name,
       100,
-      2000000,
+      8000000,
       0,
     ];
     const payload = {
