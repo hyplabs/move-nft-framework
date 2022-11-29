@@ -13,11 +13,9 @@ The goal of this project was to build and open-source something that was modular
 
 What if we could give developers building on Aptos a framework and supporting tools to build NFT projects? Fully tested Move modules for creating and listing NFT collections, a custom indexer, and a front-end template to work off of. They can take advantage of the features enabled by Aptos and the Move language to build experiences that were not possible on other chains.
 
-Move repo: https://github.com/hyplabs/move-nft-framework
-Nextjs repo: https://github.com/hyplabs/move-nft-create
-
-## Demo
-https://drive.google.com/file/d/1bI1sh-yPSsZy4mzW5J_75bYCUjqPyEqQ/preview
+### Move repo: https://github.com/hyplabs/move-nft-framework
+### Nextjs repo: https://github.com/hyplabs/move-nft-create
+### Demo: https://drive.google.com/file/d/1bI1sh-yPSsZy4mzW5J_75bYCUjqPyEqQ/view?usp=share_link
 
 ## Move modules
 The Aptos core developers laid out the standard for tokens that are non-fungible, and it can be found in the [aptos-core standard library](https://github.com/aptos-labs/aptos-core/blob/main/aptos-move/framework/aptos-token/sources/token.move).
