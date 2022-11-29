@@ -25,16 +25,6 @@ module Marketplace::FixedPriceSale {
     const ESELLER_STILL_OWNS_TOKEN: u64 = 8;
     const EBUYER_DOESNT_OWN_TOKEN: u64 = 9;
 
-    /*
-        TODO:
-        - ~~Hashmaps to store multiple NFT~~
-        - ~~Different tests~~
-        - ~~cancel listing~~
-        - ~~emit events~~
-        - ~~single function to create collection and NFT~~
-        - ~~Typescript tests~~
-    */
-
     struct Item<phantom CoinType> has store {
         list_price: u64,
         end_time: u64,
@@ -178,7 +168,7 @@ module Marketplace::FixedPriceSale {
             property_types
         );   
         let token_id = token::create_token_id_raw(creator_addr, string::utf8(collection_name), string::utf8(token_name), 0);
-        assert!(!exists<ListingItem<CoinType>>(creator_addr), EITEM_ALREADY_EXISTS);
+        // assert!(!exists<ListingItem<CoinType>>(creator_addr), EITEM_ALREADY_EXISTS);
         // Check if the seller actually owns the NFT
         assert!(token::balance_of(creator_addr, token_id) > 0, ESELLER_DOESNT_OWN_TOKEN);
 
