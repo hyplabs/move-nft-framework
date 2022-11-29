@@ -16,7 +16,8 @@ What if we could give developers building on Aptos a framework and supporting to
 Move repo: https://github.com/hyplabs/move-nft-framework
 Nextjs repo: https://github.com/hyplabs/move-nft-create
 
-![](create.mp4)
+## Demo
+https://drive.google.com/file/d/1bI1sh-yPSsZy4mzW5J_75bYCUjqPyEqQ/preview
 
 ## Move modules
 The Aptos core developers laid out the standard for tokens that are non-fungible, and it can be found in the [aptos-core standard library](https://github.com/aptos-labs/aptos-core/blob/main/aptos-move/framework/aptos-token/sources/token.move).
