@@ -177,7 +177,7 @@ module Marketplace::Auction {
             property_types
         );   
         let token_id = token::create_token_id_raw(creator_addr, string::utf8(collection_name), string::utf8(token_name), 0);
-        assert!(!exists<AuctionItem<CoinType>>(creator_addr), EITEM_ALREADY_EXISTS);
+        // assert!(!exists<AuctionItem<CoinType>>(creator_addr), EITEM_ALREADY_EXISTS);
         // Check if the seller actually owns the NFT
         assert!(token::balance_of(creator_addr, token_id) > 0, ESELLER_DOESNT_OWN_TOKEN);
         let start_time = timestamp::now_microseconds();
