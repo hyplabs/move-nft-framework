@@ -1,5 +1,7 @@
 # Deploying an NFT collection on Aptos
 
+![editions.png](editions.png)
+
 ## Project overview
 At Hypotenuse Labs, we like to build applications that test the latest technology stacks. So when a new Layer 1 blockchain is gearing up for a mainnet launch, we like to test it out.
 
@@ -14,7 +16,7 @@ What if we could give developers building on Aptos a framework and supporting to
 Move repo: https://github.com/hyplabs/move-nft-framework
 Nextjs repo: https://github.com/hyplabs/move-nft-create
 
-![editions.png](editions.png)
+![](create.mp4)
 
 ## Move modules
 The Aptos core developers laid out the standard for tokens that are non-fungible, and it can be found in the [aptos-core standard library](https://github.com/aptos-labs/aptos-core/blob/main/aptos-move/framework/aptos-token/sources/token.move).
@@ -76,7 +78,7 @@ This module can achieve the following
 
 ### How to create a collection + list it
 
-- For creating a collection as well as a token and then listing for a fixed price sale, it can be done by calling the following function
+- To create a collection as well as a token, and then listing for a fixed price sale, you would call the following function:
 ```
 public entry fun create_collection_token_and_list<CoinType>(
         creator: &signer,
