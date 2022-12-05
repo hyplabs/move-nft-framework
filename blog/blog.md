@@ -2,6 +2,12 @@
 
 ![editions.png](editions.png)
 
+This is a technical write-up of the system we built for developers to launch their NFT collections on Aptos. We provide details on
+- the inspiration for the project
+- the move modules for our escrow-less marketplace
+- code snippets for creating a token using the aptos standard library
+- extra features to compliment this codebase
+
 ## Project overview
 At Hypotenuse Labs, we like to build applications that test the latest technology stacks. So when a new Layer 1 blockchain is gearing up for a mainnet launch, we like to test it out.
 
@@ -177,3 +183,5 @@ A home page that shows all the active listings, auctions, and bids is the final 
 
 ### SDK
 Although anyone can build the transaction data required to create collections, bid on auction, etc - wrapping the aptos-specific logic into an SDK would make it easier for developers to build experiences on top of this. Moreover, such an SDK could also expose an interface for querying indexed event data.
+
+## We encourage developers to look over our modules, extend them, and contribute to the repo with any of the features outlined above. If you have any questions, don't hesitate to reach out via email: **hello@hypotenuse.ca**
